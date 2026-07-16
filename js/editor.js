@@ -31,6 +31,7 @@
     mode: 'build',
     palTab: 0,
     tool: 'block1',
+    freeMove: false,   // перемещение без привязки к сетке
     drag: null,
     hoverCell: null,
     testing: null
@@ -47,7 +48,8 @@
       { id: 'block1', label: 'Блок',      make: (x, y) => ({ t: 'block', x, y, style: 1 }) },
       { id: 'block2', label: 'Блок X',    make: (x, y) => ({ t: 'block', x, y, style: 2 }) },
       { id: 'block3', label: 'Блок клетка', make: (x, y) => ({ t: 'block', x, y, style: 3 }) },
-      { id: 'block4', label: 'Блок панель', make: (x, y) => ({ t: 'block', x, y, style: 4 }) }
+      { id: 'block4', label: 'Блок панель', make: (x, y) => ({ t: 'block', x, y, style: 4 }) },
+      { id: 'slope',  label: 'Горка',     make: (x, y) => ({ t: 'slope', x, y }) }
     ]},
     { name: 'Объекты', items: [
       { id: 'spike',   label: 'Шип',          make: (x, y) => ({ t: 'spike', x, y }) },
@@ -55,8 +57,10 @@
       { id: 'coin',    label: 'Монета',       make: (x, y) => ({ t: 'coin', x, y }) },
       { id: 'orb-y',   label: 'Орб жёлтый',   make: (x, y) => ({ t: 'orb', x, y, kind: 'yellow' }) },
       { id: 'orb-p',   label: 'Орб розовый',  make: (x, y) => ({ t: 'orb', x, y, kind: 'pink' }) },
+      { id: 'orb-b',   label: 'Орб гравитации', make: (x, y) => ({ t: 'orb', x, y, kind: 'blue' }) },
       { id: 'pad-y',   label: 'Батут жёлтый', make: (x, y) => ({ t: 'pad', x, y, kind: 'yellow' }) },
-      { id: 'pad-p',   label: 'Батут розовый', make: (x, y) => ({ t: 'pad', x, y, kind: 'pink' }) }
+      { id: 'pad-p',   label: 'Батут розовый', make: (x, y) => ({ t: 'pad', x, y, kind: 'pink' }) },
+      { id: 'pad-b',   label: 'Батут гравитации', make: (x, y) => ({ t: 'pad', x, y, kind: 'blue' }) }
     ]},
     { name: 'Порталы', items: [
       { id: 'portal-cube', label: 'Портал куб',     make: (x, y) => ({ t: 'portal', x, y, mode: 'cube' }) },
@@ -78,15 +82,18 @@
     return null;
   }
 
-  const ROTATABLE = ['block', 'spike'];
+  const ROTATABLE = ['block', 'spike', 'slope'];
   const SIZABLE = ['block', 'spike', 'coin', 'orb'];
-  const GROUPABLE = ['block', 'spike', 'coin', 'orb', 'pad'];
+  const GROUPABLE = ['block', 'spike', 'coin', 'orb', 'pad', 'slope'];
 
   /* ---------- координаты ---------- */
-  function px2cellX(px) { return Math.floor(px / (B * state.zoom) + state.camX); }
-  function px2cellY(py) { return Math.floor((GROUND_Y - py) / (B * state.zoom) + state.camY); }
+  function px2fx(px) { return px / (B * state.zoom) + state.camX; }             // дробная координата
+  function px2fy(py) { return (GROUND_Y - py) / (B * state.zoom) + state.camY; }
+  function px2cellX(px) { return Math.floor(px2fx(px)); }
+  function px2cellY(py) { return Math.floor(px2fy(py)); }
   function cellX2px(cx) { return (cx - state.camX) * B * state.zoom; }
   function cellY2px(cy) { return GROUND_Y - (cy - state.camY) * B * state.zoom; }
+  const snap05 = (v) => Math.round(v * 20) / 20;
 
   function canvasPos(e) {
     const r = canvas.getBoundingClientRect();
@@ -126,27 +133,36 @@
   }
 
   /* ---------- операции ---------- */
-  function objAt(cx, cy) {
+  // fx, fy — дробные координаты точки (поддержка объектов вне сетки)
+  function objAt(fx, fy) {
     for (let i = state.level.objects.length - 1; i >= 0; i--) {
       const o = state.level.objects[i];
       const h = o.t === 'portal' ? 3 : 1;
-      if (o.x === cx && cy >= o.y && cy < o.y + h) return o;
+      if (fx >= o.x && fx < o.x + 1 && fy >= o.y && fy < o.y + h) return o;
     }
     return null;
   }
 
-  function placeAt(cx, cy) {
-    if (cy < 0 || cx < 0) return;
+  function placeAt(px, py) {
     const def = findTool(state.tool);
     if (!def) return;
-    if (objAt(cx, cy)) return;
-    state.level.objects.push(def.make(cx, cy));
+    let x, y;
+    if (state.freeMove) {
+      x = Math.max(0, snap05(px2fx(px) - 0.5));
+      y = Math.max(0, snap05(px2fy(py) - 0.5));
+      if (objAt(x + 0.5, y + 0.5)) return;
+    } else {
+      x = px2cellX(px); y = px2cellY(py);
+      if (x < 0 || y < 0) return;
+      if (objAt(x + 0.5, y + 0.5)) return;
+    }
+    state.level.objects.push(def.make(x, y));
     if (state.drag) state.drag.changed = true;
     markDirty();
   }
 
-  function deleteAt(cx, cy) {
-    const o = objAt(cx, cy);
+  function deleteAt(px, py) {
+    const o = objAt(px2fx(px), px2fy(py));
     if (o) {
       state.level.objects.splice(state.level.objects.indexOf(o), 1);
       selection.delete(o);
@@ -274,7 +290,7 @@
       ctx.strokeRect(zeroX, groundPy - cs, cs, cs);
       ctx.font = '900 15px "Arial Black", Arial';
       ctx.fillStyle = 'rgba(120,255,120,.9)';
-      ctx.fillText('СТАРТ', zeroX + 4, 132);
+      ctx.fillText('СТАРТ', zeroX + 6, groundPy + 24); // под линией земли, не наезжает на статус
       ctx.restore();
     }
 
@@ -299,16 +315,20 @@
       }
     }
 
-    // призрак объекта под курсором
+    // призрак объекта под курсором (в свободном режиме — без сетки)
     if (state.hoverCell && state.mode === 'build' && !state.drag) {
-      const [cx, cy] = state.hoverCell;
-      if (cy >= 0 && cx >= 0 && cellY2px(cy) > 116) {
+      let gx = state.hoverCell[0], gy = state.hoverCell[1];
+      if (state.freeMove && state.hoverPx) {
+        gx = Math.max(0, snap05(px2fx(state.hoverPx[0]) - 0.5));
+        gy = Math.max(0, snap05(px2fy(state.hoverPx[1]) - 0.5));
+      }
+      if (gy >= 0 && gx >= 0 && cellY2px(gy) > 116) {
         ctx.save();
         ctx.globalAlpha = 0.35;
-        ctx.translate(cellX2px(cx), cellY2px(cy));
+        ctx.translate(cellX2px(gx), cellY2px(gy));
         ctx.scale(z, z);
         const def = findTool(state.tool);
-        if (def) GW.renderObject(ctx, def.make(cx, cy), { editor: true, static: true });
+        if (def) GW.renderObject(ctx, def.make(gx, gy), { editor: true, static: true });
         ctx.restore();
       }
     }
@@ -359,7 +379,6 @@
   canvas.addEventListener('pointerdown', (e) => {
     if (state.testing) return;
     const pos = canvasPos(e);
-    const cx = px2cellX(pos.x), cy = px2cellY(pos.y);
 
     if (e.button === 2 || e.button === 1) {
       state.drag = { pan: true, startX: pos.x, startY: pos.y, camX: state.camX, camY: state.camY };
@@ -368,19 +387,24 @@
 
     if (state.mode === 'build') {
       state.drag = { paint: true, snap: snapshot(), changed: false };
-      placeAt(cx, cy);
+      placeAt(pos.x, pos.y);
     } else if (state.mode === 'delete') {
       state.drag = { erase: true, snap: snapshot(), changed: false };
-      deleteAt(cx, cy);
+      deleteAt(pos.x, pos.y);
     } else if (state.mode === 'edit') {
-      const o = objAt(cx, cy);
+      const o = objAt(px2fx(pos.x), px2fy(pos.y));
       if (o) {
         if (e.shiftKey) {
           if (selection.has(o)) selection.delete(o); else selection.add(o);
         } else if (!selection.has(o)) {
           selection = new Set([o]);
         }
-        state.drag = { move: true, lastCX: cx, lastCY: cy, snap: snapshot(), changed: false };
+        state.drag = {
+          move: true,
+          lastCX: px2cellX(pos.x), lastCY: px2cellY(pos.y),
+          lastFX: px2fx(pos.x), lastFY: px2fy(pos.y),
+          snap: snapshot(), changed: false
+        };
         updateInspector();
       } else {
         if (!e.shiftKey) { selection.clear(); updateInspector(); }
@@ -392,8 +416,8 @@
   canvas.addEventListener('pointermove', (e) => {
     if (state.testing) return;
     const pos = canvasPos(e);
-    const cx = px2cellX(pos.x), cy = px2cellY(pos.y);
-    state.hoverCell = [cx, cy];
+    state.hoverCell = [px2cellX(pos.x), px2cellY(pos.y)];
+    state.hoverPx = [pos.x, pos.y];
 
     const d = state.drag;
     if (!d) return;
@@ -403,22 +427,40 @@
       if (state.camY < 0) state.camY = 0;
       if (state.camX < -8) state.camX = -8;
     } else if (d.paint) {
-      placeAt(cx, cy);
+      placeAt(pos.x, pos.y);
     } else if (d.erase) {
-      deleteAt(cx, cy);
+      deleteAt(pos.x, pos.y);
     } else if (d.move) {
-      const dx = cx - d.lastCX, dy = cy - d.lastCY;
-      if (dx || dy) {
-        const sel = [...selection];
+      const sel = [...selection];
+      if (state.freeMove) {
+        // свободное перемещение: без привязки к клеткам
+        const fx = px2fx(pos.x), fy = px2fy(pos.y);
+        const dx = fx - d.lastFX, dy = fy - d.lastFY;
         const okX = sel.every(o => o.x + dx >= 0);
         const okY = sel.every(o => o.y + dy >= 0);
         sel.forEach(o => {
-          if (okX) o.x += dx;
-          if (okY) o.y += dy;
+          if (okX) o.x = snap05(o.x + dx);
+          if (okY) o.y = snap05(o.y + dy);
         });
-        if (okX) d.lastCX = cx;
-        if (okY) d.lastCY = cy;
-        if (okX || okY) { d.changed = true; markDirty(); updateInspector(); }
+        if (okX) d.lastFX = fx;
+        if (okY) d.lastFY = fy;
+        if ((okX && Math.abs(dx) > 0.001) || (okY && Math.abs(dy) > 0.001)) {
+          d.changed = true; markDirty(); updateInspector();
+        }
+      } else {
+        const cx = px2cellX(pos.x), cy = px2cellY(pos.y);
+        const dx = cx - d.lastCX, dy = cy - d.lastCY;
+        if (dx || dy) {
+          const okX = sel.every(o => o.x + dx >= 0);
+          const okY = sel.every(o => o.y + dy >= 0);
+          sel.forEach(o => {
+            if (okX) o.x += dx;
+            if (okY) o.y += dy;
+          });
+          if (okX) d.lastCX = cx;
+          if (okY) d.lastCY = cy;
+          if (okX || okY) { d.changed = true; markDirty(); updateInspector(); }
+        }
       }
     } else if (d.band) {
       d.x1 = pos.x; d.y1 = pos.y;
@@ -490,10 +532,12 @@
       }
       if (dx || dy) {
         e.preventDefault();
+        const step = state.freeMove ? 0.2 : 1;
+        dx *= step; dy *= step;
         const sel = [...selection];
         if (sel.every(o => o.x + dx >= 0 && o.y + dy >= 0)) {
           pushHistory();
-          sel.forEach(o => { o.x += dx; o.y += dy; });
+          sel.forEach(o => { o.x = snap05(o.x + dx); o.y = snap05(o.y + dy); });
           markDirty(); updateInspector();
         }
       }
@@ -559,7 +603,7 @@
   const TYPE_NAMES = {
     block: 'Блок', spike: 'Шип', coin: 'Монета', portal: 'Портал',
     trigger: 'Триггер цвета', move: 'Move-триггер', orb: 'Орб', pad: 'Батут',
-    speed: 'Ускорение', start: 'Старт-поза'
+    speed: 'Ускорение', start: 'Старт-поза', slope: 'Горка'
   };
 
   function updateInspector() {
@@ -607,10 +651,37 @@
   }
 
   function rotateSelection(delta) {
-    const sel = [...selection].filter(o => ROTATABLE.includes(o.t));
+    const sel = [...selection];
     if (!sel.length) return;
+    if (sel.length > 1) {
+      // группа вращается ВОКРУГ ОБЩЕГО ЦЕНТРА, а не каждый вокруг себя
+      pushHistory();
+      const hOf = (o) => o.t === 'portal' ? 3 : 1;
+      const minX = Math.min(...sel.map(o => o.x));
+      const maxX = Math.max(...sel.map(o => o.x + 1));
+      const minY = Math.min(...sel.map(o => o.y));
+      const maxY = Math.max(...sel.map(o => o.y + hOf(o)));
+      const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+      const cw = delta > 0;
+      sel.forEach(o => {
+        const h = hOf(o);
+        const ox = o.x + 0.5, oy = o.y + h / 2;
+        const rx = ox - cx, ry = oy - cy;
+        const nx = cw ? (cx + ry) : (cx - ry);
+        const ny = cw ? (cy - rx) : (cy + rx);
+        o.x = Math.max(0, nx - 0.5);
+        o.y = Math.max(0, ny - h / 2);
+        if (state.freeMove) { o.x = snap05(o.x); o.y = snap05(o.y); }
+        else { o.x = Math.round(o.x); o.y = Math.round(o.y); }
+        if (ROTATABLE.includes(o.t)) o.rot = (((o.rot || 0) + delta) % 360 + 360) % 360;
+      });
+      markDirty(); updateInspector();
+      return;
+    }
+    const rotObjs = sel.filter(o => ROTATABLE.includes(o.t));
+    if (!rotObjs.length) return;
     pushHistory();
-    sel.forEach(o => { o.rot = (((o.rot || 0) + delta) % 360 + 360) % 360; });
+    rotObjs.forEach(o => { o.rot = (((o.rot || 0) + delta) % 360 + 360) % 360; });
     markDirty(); updateInspector();
   }
 
@@ -649,7 +720,12 @@
   });
   $('#insp-dur').addEventListener('change', (e) => {
     const o = [...selection][0];
-    if (o && o.t === 'trigger') { o.dur = Math.max(0, +e.target.value || 0); markDirty(); }
+    if (o && o.t === 'trigger') {
+      const v = parseFloat(String(e.target.value).replace(',', '.'));
+      o.dur = isFinite(v) ? Math.max(0, Math.min(10, v)) : 1;
+      e.target.value = o.dur;
+      markDirty();
+    }
   });
   $('#insp-target').addEventListener('change', (e) => {
     const o = [...selection][0];
@@ -814,6 +890,17 @@
     };
     reader.readAsText(f);
     e.target.value = '';
+  });
+
+  // сетка вкл/выкл (свободное перемещение)
+  const gridBtn = $('#ed-grid');
+  if (gridBtn) gridBtn.addEventListener('click', () => {
+    state.freeMove = !state.freeMove;
+    gridBtn.textContent = state.freeMove ? 'Сетка: выкл' : 'Сетка: вкл';
+    gridBtn.classList.toggle('active-tool', state.freeMove);
+    window.GW_APP.toast(state.freeMove
+      ? 'Свободное перемещение: объекты ставятся и тащатся куда угодно'
+      : 'Привязка к сетке включена');
   });
 
   $('#ed-clear').addEventListener('click', () => {

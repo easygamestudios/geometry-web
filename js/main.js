@@ -6,6 +6,16 @@
   const GW = window.GW;
   const $ = (sel) => document.querySelector(sel);
 
+  /* ---------- настройки ---------- */
+  const SETTINGS_KEY = 'gw_settings_v1';
+  const settings = Object.assign(
+    { musicVol: 0.5, sfxVol: 1, hideCursor: false },
+    (() => { try { return JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {}; } catch (e) { return {}; } })()
+  );
+  window.GW_SETTINGS = settings;
+
+  const IS_TOUCH = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+
   /* ---------- масштабирование сцены 1280x720 + чёткий канвас ---------- */
   const stage = $('#stage');
   let stageScale = 1;
@@ -26,7 +36,10 @@
   }
 
   function fitStage() {
-    const s = Math.min(window.innerWidth / 1280, window.innerHeight / 720);
+    // visualViewport точнее в мобильном Safari (учитывает адресную строку)
+    const vw = window.visualViewport ? window.visualViewport.width : window.innerWidth;
+    const vh = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+    const s = Math.min(vw / 1280, vh / 720);
     if (s > 0 && Math.abs(s - stageScale) > 0.001) {
       stageScale = s;
       stage.style.transform = `scale(${s})`;
@@ -34,6 +47,14 @@
     } else if (s > 0) {
       stage.style.transform = `scale(${s})`;
     }
+    // на телефонах камера ближе к игроку — картинка крупнее, играть легче
+    const zoom = (IS_TOUCH && vw > 0 && Math.min(vw, vh) < 560) ? 1.3 : 1;
+    window.GW_VIEW_ZOOM = zoom;
+    const g = window.GW_APP && window.GW_APP.game;
+    if (g) g.viewZoom = zoom;
+    // подсказка «поверни телефон» в портретной ориентации
+    const hint = $('#rotate-hint');
+    if (hint) hint.classList.toggle('show', IS_TOUCH && vh > vw && vw > 0);
   }
 
   function setupHiDPI(canvas) {
@@ -301,7 +322,8 @@
   }
 
   /* ---------- карта прохождений ---------- */
-  const MAP_NODE_POS = [[150, 560], [430, 470], [700, 510], [950, 380], [1130, 230]];
+  // узлы стоят на поверхности летающего острова
+  const MAP_NODE_POS = [[320, 415], [500, 398], [690, 400], [870, 390], [1030, 408]];
 
   function buildMap() {
     const wrap = $('#map-nodes');
@@ -506,7 +528,10 @@
   $('#levels-back').addEventListener('click', () => fadeTo('lobby'));
   $('#lvl-prev').addEventListener('click', () => { levelIndex--; buildLevelCard(); });
   $('#lvl-next').addEventListener('click', () => { levelIndex++; buildLevelCard(); });
-  $('#level-card').addEventListener('click', () => playLevel(currentLevels()[levelIndex]));
+  $('#level-card').addEventListener('click', () => {
+    if (window.GW_SWIPE_GUARD && window.GW_SWIPE_GUARD()) return; // это был свайп
+    playLevel(currentLevels()[levelIndex]);
+  });
 
   $('#btn-info').addEventListener('click', (e) => { e.stopPropagation(); showInfo(); });
   $('#info-close').addEventListener('click', () => $('#overlay-info').classList.remove('active'));
@@ -514,8 +539,116 @@
   $('#btn-map').addEventListener('click', () => fadeTo('map', buildMap));
   $('#map-back').addEventListener('click', () => fadeTo('lobby'));
 
+  /* ---------- настройки: громкости и курсор ---------- */
+  function saveSettings() {
+    try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch (e) {}
+    GW.Sfx.volume = settings.sfxVol;
+    if (game && game.music) game.music.volume = settings.musicVol;
+    stage.classList.toggle('hide-cursor', !!settings.hideCursor);
+  }
+  GW.Sfx.volume = settings.sfxVol;
+  stage.classList.toggle('hide-cursor', !!settings.hideCursor);
+
+  const btnSettings = $('#btn-settings');
+  if (btnSettings) {
+    btnSettings.addEventListener('click', () => {
+      $('#set-music').value = settings.musicVol;
+      $('#set-sfx').value = settings.sfxVol;
+      $('#set-cursor').classList.toggle('on', !!settings.hideCursor);
+      $('#overlay-settings').classList.add('active');
+    });
+    $('#settings-close').addEventListener('click', () => $('#overlay-settings').classList.remove('active'));
+    $('#set-music').addEventListener('input', (e) => { settings.musicVol = +e.target.value; saveSettings(); });
+    $('#set-sfx').addEventListener('input', (e) => {
+      settings.sfxVol = +e.target.value;
+      saveSettings();
+      GW.Sfx.coin(); // прослушка громкости
+    });
+    $('#set-cursor').addEventListener('click', (e) => {
+      settings.hideCursor = !settings.hideCursor;
+      e.currentTarget.classList.toggle('on', settings.hideCursor);
+      saveSettings();
+    });
+  }
+
+  /* ---------- телефоны: без выделения и лупы при зажатии ---------- */
+  document.addEventListener('contextmenu', (e) => {
+    if (!e.target.closest('input, textarea')) e.preventDefault();
+  });
+  document.addEventListener('selectstart', (e) => {
+    if (!e.target.closest('input, textarea')) e.preventDefault();
+  });
+
+  /* ---------- свайп между уровнями ---------- */
+  let swipeStartX = null, swipedAt = 0;
+  const lvlScreen = $('#screen-levels');
+  lvlScreen.addEventListener('pointerdown', (e) => { swipeStartX = e.clientX; });
+  lvlScreen.addEventListener('pointerup', (e) => {
+    if (swipeStartX === null) return;
+    const dx = e.clientX - swipeStartX;
+    swipeStartX = null;
+    if (Math.abs(dx) > 60) {
+      swipedAt = Date.now();
+      const list = currentLevels();
+      if (dx < 0 && levelIndex < list.length - 1) { levelIndex++; buildLevelCard(); }
+      else if (dx > 0 && levelIndex > 0) { levelIndex--; buildLevelCard(); }
+    }
+  });
+  // клик по карточке сразу после свайпа — не запускать уровень
+  window.GW_SWIPE_GUARD = () => Date.now() - swipedAt < 400;
+
+  /* ---------- «добавь на экран Домой» — один раз ---------- */
+  (function a2hs() {
+    try {
+      const standalone = (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone;
+      if (!IS_TOUCH || standalone || localStorage.getItem('gw_a2hs')) return;
+      localStorage.setItem('gw_a2hs', '1');
+      const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
+      const el = document.createElement('div');
+      el.className = 'overlay active';
+      el.innerHTML = '<div class="panel" style="min-width:0;max-width:560px">' +
+        '<h2 class="gd-title" style="font-size:28px">ИГРАЙ КАК ПРИЛОЖЕНИЕ</h2>' +
+        '<div class="gd-text" style="font-size:17px;line-height:1.8;margin-bottom:22px">' +
+        (ios
+          ? 'Нажми «Поделиться» внизу Safari<br>и выбери «На экран “Домой”» —<br>игра откроется на весь экран!'
+          : 'Открой меню браузера ⋮ и выбери<br>«Установить приложение» —<br>игра откроется на весь экран!') +
+        '</div><div class="icon-row"><button class="icon-btn" id="a2hs-ok">' +
+        '<svg viewBox="0 0 100 100"><path d="M22 52 L42 72 L78 30" fill="none" stroke="#fff" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+        '</button></div></div>';
+      $('#screen-lobby').appendChild(el);
+      el.querySelector('#a2hs-ok').addEventListener('click', () => el.remove());
+    } catch (e) { /* не критично */ }
+  })();
+
+  /* ---------- прыгающие кубики на фоне лобби (дёшево: CSS-анимация) ---------- */
+  const lobbyCubes = [];
+  (function buildLobbyCubes() {
+    const wrap = document.createElement('div');
+    wrap.id = 'lobby-cubes';
+    const lobby = $('#screen-lobby');
+    lobby.insertBefore(wrap, $('#lobby-title'));
+    for (let i = 0; i < 4; i++) {
+      const cv = document.createElement('canvas');
+      cv.width = cv.height = 56;
+      cv.className = 'lobby-cube';
+      cv.style.left = (6 + i * 25 + Math.random() * 10) + '%';
+      wrap.appendChild(cv);
+      lobbyCubes.push(cv);
+    }
+    const reduced = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduced) return;
+    setInterval(() => {
+      if (document.hidden || !lobby.classList.contains('active')) return;
+      const cv = lobbyCubes[(Math.random() * lobbyCubes.length) | 0];
+      cv.classList.remove('jump');
+      void cv.offsetWidth;              // перезапуск анимации
+      cv.classList.add('jump');
+    }, 900);
+  })();
+
   /* ---------- старт ---------- */
   GW.Icons.load(() => {
     buildGarage();
+    lobbyCubes.forEach(cv => drawIconOn(cv, Math.random() < 0.5 ? 0 : 1));
   });
 })();

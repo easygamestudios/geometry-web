@@ -79,6 +79,95 @@ canvas { display: block; }
 
 .menu-bg::before, #lobby-title { will-change: transform; }
 
+/* прыгающие кубики на фоне лобби */
+#lobby-cubes { position: absolute; inset: 0; pointer-events: none; z-index: 0; }
+.lobby-cube {
+  position: absolute;
+  bottom: 124px;              /* на линии земли */
+  width: 56px; height: 56px;
+  opacity: .85;
+}
+.lobby-cube.jump { animation: cubejump .75s ease-out; }
+@keyframes cubejump {
+  0%   { transform: translateY(0) rotate(0deg); }
+  45%  { transform: translateY(-105px) rotate(180deg); }
+  100% { transform: translateY(0) rotate(360deg); }
+}
+
+/* подсказка «поверни телефон» */
+#rotate-hint {
+  position: absolute; inset: 0;
+  z-index: 70;
+  display: none;
+  flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+  background: rgba(4,10,40,.92);
+  pointer-events: none;
+}
+#rotate-hint.show { display: flex; }
+
+/* настройки */
+.set-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 26px;
+  margin: 16px 0;
+  font-size: 19px;
+}
+.set-row input[type="range"] {
+  width: 220px;
+  -webkit-appearance: none; appearance: none;
+  height: 10px;
+  background: rgba(0,0,0,.55);
+  border-radius: 5px;
+  outline: none;
+  cursor: pointer;
+}
+.set-row input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 26px; height: 26px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #6ee76e, #16a516 60%, #0c7a0c);
+  border: 3px solid #000;
+}
+.set-toggle {
+  width: 74px; height: 36px;
+  border: 3px solid #000; border-radius: 18px;
+  background: rgba(0,0,0,.5);
+  cursor: pointer;
+  position: relative;
+  transition: background .15s;
+}
+.set-toggle i {
+  position: absolute; top: 2px; left: 3px;
+  width: 26px; height: 26px;
+  border-radius: 50%;
+  background: #9aa2ad;
+  border: 2px solid #000;
+  transition: left .15s, background .15s;
+}
+.set-toggle.on { background: rgba(46,197,15,.55); }
+.set-toggle.on i { left: 39px; background: #7dff5e; }
+
+/* прятать курсор во время игры */
+#stage.hide-cursor #game-canvas { cursor: none; }
+
+/* летающий остров на карте */
+#map-float {
+  position: absolute; inset: 0;
+  z-index: 1;
+  animation: islandbob 6s ease-in-out infinite;
+  will-change: transform;
+}
+#map-float #map-nodes { position: absolute; inset: 0; z-index: 2; }
+@keyframes islandbob {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-13px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #map-float { animation: none; }
+  .lobby-cube.jump { animation: none; }
+}
+
 /* доступность: меньше движения для чувствительных к анимации */
 @media (prefers-reduced-motion: reduce) {
   .menu-bg::before { animation: none; }
@@ -177,7 +266,7 @@ canvas { display: block; }
   -webkit-text-stroke: 1px #000;
 }
 #lobby-devtag {
-  position: absolute; bottom: 14px; left: 20px;
+  position: absolute; bottom: 14px; left: 104px; /* правее кнопки настроек */
   font-size: 16px; color: #ffe14d;
   -webkit-text-stroke: 1px #000;
 }
@@ -651,10 +740,10 @@ canvas { display: block; }
   line-height: 1.6;
 }
 
-/* инспектор — плавающая панель справа */
+/* инспектор — плавающая панель справа (не наезжает на кнопку теста) */
 #ed-inspector {
   position: absolute;
-  right: 12px; bottom: 196px;
+  right: 102px; bottom: 196px;
   width: 230px;
   max-height: 380px;
   overflow-y: auto;

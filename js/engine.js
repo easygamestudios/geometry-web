@@ -50,6 +50,7 @@
   /* ---------- простые звуки (WebAudio) ---------- */
   const Sfx = {
     ctx: null,
+    volume: 1, // множитель громкости эффектов (настройки)
     ensure() {
       if (!this.ctx) {
         try { this.ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { /* нет звука */ }
@@ -58,12 +59,13 @@
       return this.ctx;
     },
     tone(freq, dur, type, vol, when, slide) {
+      if (this.volume <= 0.01) return;
       const ctx = this.ensure(); if (!ctx) return;
       const t0 = ctx.currentTime + (when || 0);
       const o = ctx.createOscillator(), g = ctx.createGain();
       o.type = type || 'square'; o.frequency.setValueAtTime(freq, t0);
       if (slide) o.frequency.exponentialRampToValueAtTime(Math.max(30, slide), t0 + dur);
-      g.gain.setValueAtTime(vol || 0.12, t0);
+      g.gain.setValueAtTime((vol || 0.12) * this.volume, t0);
       g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
       o.connect(g).connect(ctx.destination);
       o.start(t0); o.stop(t0 + dur + 0.02);
@@ -310,6 +312,28 @@
 
     if (t === 'block') {
       drawBlockStyle(ctx, obj.style || 1);
+    } else if (t === 'slope') {
+      // горка: блок, срезанный по диагонали (подъём слева направо; rot 90 — спуск)
+      const h = B / 2;
+      ctx.beginPath();
+      ctx.moveTo(-h, h);
+      ctx.lineTo(h, h);
+      ctx.lineTo(h, -h);
+      ctx.closePath();
+      ctx.fillStyle = '#0e0e14';
+      ctx.fill();
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = 'rgba(255,255,255,.92)';
+      ctx.lineJoin = 'round';
+      ctx.stroke();
+      ctx.strokeStyle = 'rgba(255,255,255,.14)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(-h + 16, h - 7);
+      ctx.lineTo(h - 7, h - 7);
+      ctx.lineTo(h - 7, -h + 16);
+      ctx.closePath();
+      ctx.stroke();
     } else if (t === 'spike') {
       ctx.beginPath();
       ctx.moveTo(-B / 2 + 3, B / 2);
@@ -331,17 +355,17 @@
       // орб как в GD: полностью жёлтый шар (слабый — розовый),
       // ПРОБЕЛ, и вокруг — тонкое белое кольцо, которое пульсирует;
       // при активации кольцо «расплывается» (эффект whitering в игре)
-      const strong = obj.kind !== 'pink';
-      const main = strong ? '#ffd23d' : '#ff8ae0';
-      const deep = strong ? '#f0a800' : '#e86ac8';
+      const kind = obj.kind === 'pink' ? 'pink' : (obj.kind === 'blue' ? 'blue' : 'yellow');
+      const main = kind === 'pink' ? '#ff9ae6' : (kind === 'blue' ? '#5ad2ff' : '#ffe36e');
+      const deep = kind === 'pink' ? '#ec74cc' : (kind === 'blue' ? '#1a8fd8' : '#f5bc1e');
       const tm = opts.time || 0;
       const act = (!opts.static && obj._fxT != null) ? tm - obj._fxT : -1;
       const overload = act >= 0 && act < 0.3;
       ctx.save();
       ctx.globalAlpha = obj.used && !overload ? 0.35 : 1;
-      const R = B * 0.24;
+      // пульсирует сам жёлтый шар: сжимается и растёт
+      const R = B * 0.24 + (opts.static ? 0 : Math.sin(tm * 3.5 + (obj.x || 0)) * B * 0.045);
       if (!opts.static) { ctx.shadowColor = main; ctx.shadowBlur = overload ? 26 : 14; }
-      // шар: целиком жёлтый (лёгкое затемнение к краю, без белой середины)
       const cg = ctx.createRadialGradient(0, 0, R * 0.2, 0, 0, R);
       cg.addColorStop(0, overload ? '#ffffff' : main);
       cg.addColorStop(1, overload ? '#ffffff' : deep);
@@ -349,19 +373,18 @@
       ctx.fillStyle = cg;
       ctx.fill();
       ctx.shadowBlur = 0;
-      // пульсирующее белое кольцо с пробелом от шара
-      const ringR = B * 0.37 + (opts.static ? 0 : Math.sin(tm * 3.5 + (obj.x || 0)) * B * 0.035);
-      ctx.beginPath(); ctx.arc(0, 0, ringR, 0, Math.PI * 2);
+      // белое кольцо с пробелом от шара
+      ctx.beginPath(); ctx.arc(0, 0, B * 0.37, 0, Math.PI * 2);
       ctx.lineWidth = 2.5;
       ctx.strokeStyle = 'rgba(255,255,255,.95)';
       ctx.stroke();
       ctx.restore();
     } else if (t === 'pad') {
-      // батут как в GD: жёлтый полуовал-купол на земле (слабый — розовый),
-      // тонкая белая обводка; при запуске — упругое сжатие-растяжение
-      const strong = obj.kind !== 'pink';
-      const main = strong ? '#ffe14d' : '#ff8ae0';
-      const deep = strong ? '#e8960c' : '#d8409c';
+      // батут как в GD: жёлтый полуовал-купол на земле (розовый — слабый,
+      // синий — переворот гравитации); тонкая белая обводка
+      const pkind = obj.kind === 'pink' ? 'pink' : (obj.kind === 'blue' ? 'blue' : 'yellow');
+      const main = pkind === 'pink' ? '#ff8ae0' : (pkind === 'blue' ? '#5ad2ff' : '#ffe14d');
+      const deep = pkind === 'pink' ? '#d8409c' : (pkind === 'blue' ? '#1a7ec2' : '#e8960c');
       const tm = opts.time || 0;
       const act = (!opts.static && obj._fxT != null) ? tm - obj._fxT : -1;
       let squash = 1;
@@ -462,7 +485,7 @@
   }
 
   /* ---------- нормализация уровня ---------- */
-  const TYPES = ['block', 'spike', 'coin', 'portal', 'trigger', 'orb', 'pad', 'speed', 'move', 'start'];
+  const TYPES = ['block', 'spike', 'coin', 'portal', 'trigger', 'orb', 'pad', 'speed', 'move', 'start', 'slope'];
   const DIFFICULTIES = ['easy', 'normal', 'hard', 'harder', 'insane', 'demon'];
   function normalizeLevel(raw) {
     const lvl = {
@@ -475,15 +498,19 @@
     };
     (raw.objects || []).forEach(o => {
       if (!o || typeof o.x !== 'number' || !TYPES.includes(o.t)) return;
-      const obj = { t: o.t, x: Math.round(o.x), y: Math.round(o.y || 0) };
+      // координаты с шагом 0.05 — поддержка свободного размещения в редакторе
+      const obj = { t: o.t, x: Math.round(o.x * 20) / 20, y: Math.round((o.y || 0) * 20) / 20 };
       if (o.rot) obj.rot = ((Math.round(o.rot / 90) * 90) % 360 + 360) % 360;
       if (o.size && o.size !== 1) obj.size = Math.max(0.4, Math.min(3, +o.size));
       if (o.group) obj.group = Math.max(0, Math.min(99, Math.round(+o.group))) || 0;
       if (o.t === 'block') obj.style = [1, 2, 3, 4].includes(o.style) ? o.style : 1;
       if (o.t === 'portal') obj.mode = ['ship', 'wave'].includes(o.mode) ? o.mode : 'cube';
-      if (o.t === 'orb' || o.t === 'pad') obj.kind = o.kind === 'pink' ? 'pink' : 'yellow';
+      if (o.t === 'orb' || o.t === 'pad') obj.kind = ['pink', 'blue'].includes(o.kind) ? o.kind : 'yellow';
       if (o.t === 'speed') obj.mult = [0.8, 1, 1.5, 2].includes(+o.mult) ? +o.mult : 1;
-      if (o.t === 'trigger') { obj.color = o.color || '#ff00ff'; obj.dur = Math.max(0, +o.dur || 0) || 1; }
+      if (o.t === 'trigger') {
+        obj.color = o.color || '#ff00ff';
+        obj.dur = isFinite(+o.dur) ? Math.max(0, Math.min(10, +o.dur)) : 1;
+      }
       if (o.t === 'move') {
         obj.target = Math.max(1, Math.min(99, Math.round(+o.target) || 1));
         obj.dx = Math.max(-200, Math.min(200, +o.dx || 0));
@@ -508,6 +535,7 @@
     this.running = false;
     this.paused = false;
     this.iconId = 0;
+    this.viewZoom = window.GW_VIEW_ZOOM || 1; // >1 — камера ближе (телефоны)
     this.startX = -6 * B;
     this._raf = null;
     this._accum = 0;
@@ -557,7 +585,7 @@
     if (this.music) { this.music.pause(); this.music = null; }
     if (this.level.music) {
       this.music = new Audio(this.level.music);
-      this.music.volume = 0.5;
+      this.music.volume = (window.GW_SETTINGS && window.GW_SETTINGS.musicVol != null) ? window.GW_SETTINGS.musicVol : 0.5;
     }
     let ci = 0;
     this.level.objects.forEach(o => { if (o.t === 'coin') o.coinIndex = ci++; });
@@ -568,8 +596,9 @@
     this.level.objects.forEach(o => {
       if (o.t === 'start') return;               // старт-позиция — только для редактора
       if (o.group) { this.groupedObjs.push(o); return; }
-      let arr = this.staticCols.get(o.x);
-      if (!arr) this.staticCols.set(o.x, arr = []);
+      const col = Math.floor(o.x);               // координаты могут быть дробными
+      let arr = this.staticCols.get(col);
+      if (!arr) this.staticCols.set(col, arr = []);
       arr.push(o);
     });
     this.resetAttempt(true);
@@ -592,11 +621,15 @@
       y: cp ? cp.y : this.startY,
       vy: cp ? cp.vy : 0,
       mode: cp ? cp.mode : 'cube',
+      grav: cp ? (cp.grav || 1) : 1,   // 1 — обычная гравитация, -1 — перевёрнутая
       rot: 0,
       grounded: true,
       dead: false,
       won: false
     };
+    this.wonT = 0;
+    this._completeFired = false;
+    this._wallHit = null;
     this.hold = false;
     this._pressBuf = 0;
     this.jumpsAttempt = 0;
@@ -661,11 +694,13 @@
     this.camX = this.p.x - 5 * B;
     this.camY = Math.max(0, this.p.y - 4 * B);
 
-    if (this.music && this.running && !this.paused) {
+    if (this.music && this.running) {
       if (!this.practice) {
+        // перемотка на начало ВСЕГДА (даже из меню паузы) — иначе
+        // «начать заново» рестартовало всё, кроме музыки
         this.music.currentTime = 0;
-        this.music.play().catch(() => {});
-      } else if (this.music.paused) {
+        if (!this.paused) this.music.play().catch(() => {});
+      } else if (!this.paused && this.music.paused) {
         this.music.play().catch(() => {});
       }
     }
@@ -730,7 +765,7 @@
   Game.prototype.setHold = function (h) {
     if (h && !this.hold && this.running && !this.paused) {
       this._jumpQueued = true;
-      this._pressBuf = 0.12;
+      this._pressBuf = 1.5; // нажатие «запоминается» до 1.5 сек — успеешь долететь до орба
     }
     this.hold = h;
   };
@@ -738,7 +773,7 @@
   /* ---------- чекпоинты (практика) ---------- */
   Game.prototype.placeCheckpoint = function (manual) {
     if (!this.practice || this.p.dead || this.p.won) return;
-    this.checkpoints.push({ x: this.p.x, y: this.p.y, vy: this.p.vy, mode: this.p.mode, speedMult: this.speedMult });
+    this.checkpoints.push({ x: this.p.x, y: this.p.y, vy: this.p.vy, mode: this.p.mode, grav: this.p.grav, speedMult: this.speedMult });
     if (manual) Sfx.checkpoint();
     this.cpAutoTimer = 0;
   };
@@ -751,7 +786,7 @@
     for (const o of this.level.objects) {
       if (o.t !== 'spike') continue;
       const ox = o.x * B + this.getOff(o).x;
-      if (ox > px - B && ox < px + 3.6 * B) return true;
+      if (ox > px - B && ox < px + 2.2 * B) return true;
     }
     return false;
   };
@@ -783,6 +818,7 @@
       pt.vy -= 2400 * dt * (pt.grav || 0);
       if (pt.vrot) pt.rot = (pt.rot || 0) + pt.vrot * dt;
       pt.life -= dt;
+      if (pt.suckX != null && pt.x >= pt.suckX) return false; // влетела в стену
       return pt.life > 0;
     });
 
@@ -806,7 +842,23 @@
     }
     if (this.spawnT < 1) this.spawnT += dt;
 
-    if (p.won) return;
+    if (p.won) {
+      // влетели в стену: 1.5 сек лучи, потом экран победы; музыка играет дальше
+      this.wonT += dt;
+      if (!this._completeFired && this.wonT >= 1.5) {
+        this._completeFired = true;
+        if (this.hooks.onComplete) {
+          this.hooks.onComplete({
+            attempts: this.attempts,
+            jumps: this.jumpsAttempt,
+            time: Math.round(this.timeTotal),
+            coins: this.runCoins.slice(),
+            practice: this.practice
+          });
+        }
+      }
+      return;
+    }
 
     if (p.dead) {
       this.deadTimer += dt;
@@ -833,44 +885,44 @@
     // движение вперёд
     p.x += speed * dt;
 
-    // вертикаль по режимам
+    // вертикаль по режимам (g = направление гравитации: 1 обычная, -1 перевёрнутая)
+    const g = p.grav;
     if (p.mode === 'cube') {
       if ((this.hold || this._jumpQueued) && p.grounded) {
-        p.vy = PHYS.JUMP_V;
+        p.vy = PHYS.JUMP_V * g;
         p.grounded = false;
         this.jumpsAttempt++;
         this._pressBuf = 0;
       }
       this._jumpQueued = false;
-      p.vy -= PHYS.GRAV * dt;
-      if (p.vy < -PHYS.FALL_MAX) p.vy = -PHYS.FALL_MAX;
+      p.vy -= PHYS.GRAV * g * dt;
+      if (p.vy * g < -PHYS.FALL_MAX) p.vy = -PHYS.FALL_MAX * g;
       p.y += p.vy * dt;
     } else if (p.mode === 'ship') {
       this._jumpQueued = false;
-      if (this.hold) p.vy += PHYS.SHIP_ACC * dt;
-      else p.vy -= PHYS.SHIP_GRAV * dt;
+      p.vy += (this.hold ? PHYS.SHIP_ACC : -PHYS.SHIP_GRAV) * g * dt;
       if (p.vy > PHYS.SHIP_VMAX) p.vy = PHYS.SHIP_VMAX;
       if (p.vy < -PHYS.SHIP_VMAX) p.vy = -PHYS.SHIP_VMAX;
       p.y += p.vy * dt;
     } else { // wave — 45 градусов
       this._jumpQueued = false;
-      p.vy = this.hold ? speed : -speed;
+      p.vy = (this.hold ? speed : -speed) * g;
       p.y += p.vy * dt;
     }
 
-    const wasGrounded = p.grounded;
     p.grounded = false;
 
     // земля
     if (p.y <= 0) {
       p.y = 0;
       if (p.vy < 0) p.vy = 0;
-      p.grounded = true;
+      if (g > 0) p.grounded = true;   // при перевёрнутой гравитации пол лишь упор
     }
-    // потолок арены (корабль и волна)
-    if ((p.mode === 'ship' || p.mode === 'wave') && p.y + B >= PHYS.ARENA_CEIL) {
+    // потолок арены: для перевёрнутого куба это «пол»
+    if (p.y + B >= PHYS.ARENA_CEIL && (p.mode !== 'cube' || g < 0)) {
       p.y = PHYS.ARENA_CEIL - B;
       if (p.vy > 0) p.vy = 0;
+      if (g < 0) p.grounded = true;
     }
 
     // столкновения (через индекс колонок)
@@ -900,27 +952,77 @@
       if (o.t === 'block') {
         const bs = B * (o.size || 1);
         const bx = baseX + (B - bs) / 2, by = baseY + (B - bs) / 2;
-        if (p.x + B <= bx || p.x >= bx + bs || p.y + B <= by || p.y >= by + bs) return false;
-        if (p.mode === 'wave') { this.die(); return true; }
-        // сверху (посадка)
-        if (prevY >= by + bs - 0.01 && p.vy <= 0) {
-          p.y = by + bs; p.vy = 0; p.grounded = true; return false;
-        }
-        if (p.vy <= 0 && p.y >= by + bs - PHYS.CLIP) {
-          p.y = by + bs; p.vy = 0; p.grounded = true; return false;
-        }
-        // снизу
-        if (prevY + B <= by + 0.01 && p.vy >= 0) {
-          if (p.mode === 'ship') { p.y = by - B; p.vy = 0; return false; }
+        if (p.mode === 'wave') {
+          // у волны маленький хитбокс — тоннели проходимы
+          const wi = B * 0.32;
+          if (p.x + B - wi <= bx || p.x + wi >= bx + bs || p.y + B - wi <= by || p.y + wi >= by + bs) return false;
           this.die(); return true;
         }
+        if (p.x + B <= bx || p.x >= bx + bs || p.y + B <= by || p.y >= by + bs) return false;
+        if (p.grav > 0) {
+          // сверху (посадка)
+          if (prevY >= by + bs - 0.01 && p.vy <= 0) {
+            p.y = by + bs; p.vy = 0; p.grounded = true; return false;
+          }
+          if (p.vy <= 0 && p.y >= by + bs - PHYS.CLIP) {
+            p.y = by + bs; p.vy = 0; p.grounded = true; return false;
+          }
+          // снизу
+          if (prevY + B <= by + 0.01 && p.vy >= 0) {
+            if (p.mode === 'ship') { p.y = by - B; p.vy = 0; return false; }
+            this.die(); return true;
+          }
+        } else {
+          // перевёрнутая гравитация: «пол» — низ блока
+          if (prevY + B <= by + 0.01 && p.vy >= 0) {
+            p.y = by - B; p.vy = 0; p.grounded = true; return false;
+          }
+          if (p.vy >= 0 && p.y + B <= by + PHYS.CLIP) {
+            p.y = by - B; p.vy = 0; p.grounded = true; return false;
+          }
+          if (prevY >= by + bs - 0.01 && p.vy <= 0) {
+            if (p.mode === 'ship') { p.y = by + bs; p.vy = 0; return false; }
+            this.die(); return true;
+          }
+        }
         this.die(); return true;
+      }
+
+      if (o.t === 'slope') {
+        // горка 45°: rot 0 — подъём слева направо, rot 90 — спуск.
+        // Куб и корабль взбираются без прыжка; волна погибает.
+        const bx = baseX, by = baseY;
+        if (p.x + B <= bx || p.x >= bx + B) return false;
+        const desc = o.rot === 90;
+        const lead = desc ? (bx + B - p.x) : (p.x + B - bx);
+        const surf = by + Math.max(0, Math.min(B, lead));
+        if (p.mode === 'wave') {
+          const wi = B * 0.32;
+          if (p.y + wi < surf && p.y + B - wi > by) { this.die(); return true; }
+          return false;
+        }
+        if (p.grav < 0) {
+          // перевёрнутый режим о горку разбивается (глубокое пересечение)
+          if (p.y < surf - 6 && p.y + B > by) { this.die(); return true; }
+          return false;
+        }
+        if (p.y < surf) {
+          if (p.y >= surf - B * 0.45 || p.vy < 0 || p.grounded) {
+            p.y = surf;
+            if (p.vy < 0) p.vy = 0;
+            p.grounded = true;
+          } else {
+            this.die(); return true;  // врезался в высокий торец горки
+          }
+        }
+        return false;
       }
 
       if (o.t === 'spike') {
         const hs = B * 0.30 * (o.size || 1);
         const cx = baseX + B / 2, cy = baseY + B / 2;
-        const il = p.x + B * 0.28, ir = p.x + B * 0.72, ib = p.y + B * 0.28, it = p.y + B * 0.72;
+        const m = p.mode === 'wave' ? 0.36 : 0.28; // у волны хитбокс меньше
+        const il = p.x + B * m, ir = p.x + B * (1 - m), ib = p.y + B * m, it = p.y + B * (1 - m);
         if (ir > cx - hs / 2 && il < cx + hs / 2 && it > cy - hs / 2 && ib < cy + hs / 2) {
           this.die(); return true;
         }
@@ -942,8 +1044,8 @@
       }
 
       if (o.t === 'orb' && !o.used && p.mode !== 'wave') {
-        // орб срабатывает и по свежему клику, и если кнопка уже удерживается (как в GD)
-        if (this._pressBuf > 0 || this.hold) {
+        // орб срабатывает ТОЛЬКО по свежему нажатию — зажатие не считается
+        if (this._pressBuf > 0) {
           const cx = baseX + B / 2, cy = baseY + B / 2;
           const dx = (p.x + B / 2) - cx, dy = (p.y + B / 2) - cy;
           const r = B * 0.75 * (o.size || 1);
@@ -951,12 +1053,19 @@
             o.used = true;
             o._fxT = this.time;
             this._pressBuf = 0;
-            const k = o.kind === 'pink' ? 0.8 : 1.0;
-            if (p.mode === 'cube') { p.vy = PHYS.JUMP_V * k; p.grounded = false; }
-            else { p.vy = 640 * k; }
+            if (o.kind === 'blue') {
+              // синий орб: переворот гравитации
+              p.grav *= -1;
+              p.vy = -p.grav * 350;
+              p.grounded = false;
+            } else {
+              const k = o.kind === 'pink' ? 0.8 : 1.0;
+              if (p.mode === 'cube') { p.vy = PHYS.JUMP_V * k * p.grav; p.grounded = false; }
+              else { p.vy = 640 * k * p.grav; }
+            }
             this.jumpsAttempt++;
-            // белая обводка «расплывается» + бело-жёлтые искры
-            const main = o.kind === 'pink' ? '#ff8ae0' : '#ffd94d';
+            // белая обводка «расплывается» + искры
+            const main = o.kind === 'pink' ? '#ff8ae0' : (o.kind === 'blue' ? '#5ad2ff' : '#ffd94d');
             this.spawnBurst(cx, cy, main, 6);
             this.spawnBurst(cx, cy, '#ffffff', 6);
             this.fx.push({ kind: 'whitering', x: cx, y: cy, t: 0, dur: 0.45, r0: B * 0.30 });
@@ -971,12 +1080,19 @@
         if (p.x + B > px1 && p.x < px2 && p.y <= py2 && p.y + B > py1) {
           o.used = true;
           o._fxT = this.time;
-          const k = o.kind === 'pink' ? 0.95 : 1.32;
-          if (p.mode === 'cube') { p.vy = PHYS.JUMP_V * k; p.grounded = false; }
-          else { p.vy = 640 * k; }
-          // запуск: белое кольцо, вспышка, бело-жёлтые частицы вверх, след за игроком
+          if (o.kind === 'blue') {
+            // синий батут: переворот гравитации с толчком
+            p.grav *= -1;
+            p.vy = -p.grav * 520;
+            p.grounded = false;
+          } else {
+            const k = o.kind === 'pink' ? 0.95 : 1.32;
+            if (p.mode === 'cube') { p.vy = PHYS.JUMP_V * k * p.grav; p.grounded = false; }
+            else { p.vy = 640 * k * p.grav; }
+          }
+          // запуск: белое кольцо, вспышка, частицы вверх, след за игроком
           const cx = baseX + B / 2, cy = baseY + B * 0.2;
-          const main = o.kind === 'pink' ? '#ff8ae0' : '#ffe14d';
+          const main = o.kind === 'pink' ? '#ff8ae0' : (o.kind === 'blue' ? '#5ad2ff' : '#ffe14d');
           this.fx.push({ kind: 'whitering', x: cx, y: cy, t: 0, dur: 0.45, r0: B * 0.3 });
           this.fx.push({ kind: 'shockwave', x: cx, y: cy, t: -0.08, dur: 0.5, color: main });
           this.fx.push({ kind: 'flashlocal', x: cx, y: cy, t: 0, dur: 0.22 });
@@ -1053,7 +1169,7 @@
     // вращение куба
     if (p.mode === 'cube') {
       if (!p.grounded) {
-        p.rot += PHYS.ROT_SPEED * dt;
+        p.rot += PHYS.ROT_SPEED * p.grav * dt;
       } else {
         const target = Math.round(p.rot / 90) * 90;
         p.rot += (target - p.rot) * Math.min(1, 18 * dt);
@@ -1071,16 +1187,16 @@
       });
     }
 
-    // автоматический чекпоинт в практике
+    // автоматический чекпоинт в практике (чаще, чтобы кубу тоже доставалось)
     if (this.practice) {
       this.cpAutoTimer += dt;
-      if (this.cpAutoTimer > 2.5 && (p.grounded || p.mode !== 'cube') && !this._hazardAhead()) {
+      if (this.cpAutoTimer > 1.6 && (p.grounded || p.mode !== 'cube') && !this._hazardAhead()) {
         this.placeCheckpoint(false);
       }
     }
 
     // камера
-    this.camX = p.x - 5 * B;
+    this.camX = p.x - (VIEW_W / this.viewZoom) * 0.235;
     const relY = p.y - this.camY;
     let target = this.camY;
     if (relY > 5.4 * B) target = p.y - 5.4 * B;
@@ -1088,9 +1204,9 @@
     if (p.grounded && p.y === 0) target = 0;
     this.camY += (target - this.camY) * Math.min(1, 6 * dt);
 
-    // прогресс и победа
+    // прогресс и победа (влетаем прямо в стену)
     this._pct = Math.max(0, Math.min(100, (p.x / this.level.endX) * 100));
-    if (p.x >= this.level.endX) this.win();
+    if (p.x + B >= this.level.endX + 2 * B) this.win();
   };
 
   Game.prototype.die = function () {
@@ -1117,6 +1233,8 @@
       }
     }
     this.deathFx = { t: 0, pieces };
+    // белая обводка «улетает» — как у орба
+    this.fx.push({ kind: 'whitering', x: cx, y: cy, t: 0, dur: 0.5, r0: B * 0.4 });
     if (this.music && !this.practice) this.music.pause();
     if (this.hooks.onDeath) this.hooks.onDeath(this.attempts, (p.x / this.level.endX) * 100, this.jumpsAttempt);
   };
@@ -1125,18 +1243,25 @@
     const p = this.p;
     if (p.won) return;
     p.won = true;
+    this.wonT = 0;
     Sfx.complete();
-    this.spawnBurst(p.x + B / 2, p.y + B / 2 + 60, '#ffd94d', 26);
-    if (this.music) this.music.pause();
-    if (this.hooks.onComplete) {
-      this.hooks.onComplete({
-        attempts: this.attempts,
-        jumps: this.jumpsAttempt,
-        time: Math.round(this.timeTotal),
-        coins: this.runCoins.slice(),
-        practice: this.practice
+    // точка удара о стену + веер лучей влево (как в оригинале)
+    const wallX = this.level.endX + 2 * B;
+    p.x = wallX - B * 0.7;
+    const iy = p.y + B / 2;
+    const rays = [];
+    for (let i = 0; i < 10; i++) {
+      rays.push({
+        ang: Math.PI * 0.5 + (i / 9) * Math.PI + (Math.random() - 0.5) * 0.12,
+        len: 130 + Math.random() * 240,
+        w: 5 + Math.random() * 9,
+        ph: Math.random() * 6.28
       });
     }
+    this._wallHit = { x: wallX - 8, y: iy, rays };
+    this.spawnBurst(wallX - 12, iy, '#ffffff', 18);
+    this.fx.push({ kind: 'whitering', x: wallX - 10, y: iy, t: 0, dur: 0.6, r0: B * 0.3 });
+    // музыка НЕ останавливается: играет, пока не выйдешь в меню или трек не кончится
   };
 
   Game.prototype.spawnBurst = function (x, y, color, n) {
@@ -1153,26 +1278,32 @@
 
   /* ---------- отрисовка ---------- */
   Game.prototype.sx = function (wx) { return wx - this.camX; };
-  Game.prototype.sy = function (wy) { return GROUND_SCREEN_Y - (wy - this.camY); };
+  Game.prototype.sy = function (wy) { return (this._gsy || GROUND_SCREEN_Y) - (wy - this.camY); };
 
   Game.prototype.render = function () {
     const ctx = this.ctx, p = this.p;
     const bg = this.bgCur || '#287dff';
     if (this.hooks.onTick) this.hooks.onTick(this._pct || 0);
 
-    const grad = ctx.createLinearGradient(0, 0, 0, VIEW_H);
+    const z = this.viewZoom || 1;
+    const VW = VIEW_W / z, VH = VIEW_H / z;
+    this._gsy = VH - (VIEW_H - GROUND_SCREEN_Y) / z; // линия земли с учётом зума
+    ctx.save();
+    ctx.scale(z, z);
+
+    const grad = ctx.createLinearGradient(0, 0, 0, VH);
     grad.addColorStop(0, shade(bg, 0.10));
     grad.addColorStop(1, shade(bg, -0.25));
     ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+    ctx.fillRect(0, 0, VW, VH);
 
     // фоновый узор
     ctx.save();
     ctx.globalAlpha = 0.055;
     ctx.fillStyle = '#ffffff';
     const bgSize = 340, bgOff = -(this.camX * 0.12) % bgSize;
-    for (let x = bgOff - bgSize; x < VIEW_W + bgSize; x += bgSize) {
-      for (let y = -((this.camY * 0.12) % bgSize) - bgSize + 40; y < VIEW_H + bgSize; y += bgSize) {
+    for (let x = bgOff - bgSize; x < VW + bgSize; x += bgSize) {
+      for (let y = -((this.camY * 0.12) % bgSize) - bgSize + 40; y < VH + bgSize; y += bgSize) {
         ctx.fillRect(x + 20, y + 20, bgSize - 40, bgSize - 40);
       }
     }
@@ -1182,29 +1313,29 @@
 
     // земля
     const gcol = shade(bg, -0.45);
-    const ggrad = ctx.createLinearGradient(0, groundY, 0, VIEW_H);
+    const ggrad = ctx.createLinearGradient(0, groundY, 0, VH);
     ggrad.addColorStop(0, gcol);
     ggrad.addColorStop(1, shade(bg, -0.7));
     ctx.fillStyle = ggrad;
-    ctx.fillRect(0, groundY, VIEW_W, VIEW_H - groundY + 400);
+    ctx.fillRect(0, groundY, VW, VH - groundY + 400);
     ctx.save();
     ctx.globalAlpha = 0.10;
     ctx.strokeStyle = '#ffffff';
     ctx.lineWidth = 3;
     const gSize = 120, gOff = -(this.camX % gSize);
-    for (let x = gOff - gSize; x < VIEW_W + gSize; x += gSize) {
+    for (let x = gOff - gSize; x < VW + gSize; x += gSize) {
       ctx.strokeRect(x + 8, groundY + 8, gSize - 16, gSize - 16);
     }
     ctx.restore();
     ctx.fillStyle = 'rgba(255,255,255,.9)';
-    ctx.fillRect(0, groundY - 2, VIEW_W, 4);
+    ctx.fillRect(0, groundY - 2, VW, 4);
     ctx.save();
     ctx.shadowColor = 'rgba(255,255,255,.8)'; ctx.shadowBlur = 10;
-    ctx.fillRect(0, groundY - 1, VIEW_W, 2);
+    ctx.fillRect(0, groundY - 1, VW, 2);
     ctx.restore();
 
     // объекты (только видимые колонки индекса)
-    const viewL = this.camX - 4 * B, viewR = this.camX + VIEW_W + 4 * B;
+    const viewL = this.camX - 4 * B, viewR = this.camX + VW + 4 * B;
     const emitOk = !this.paused && !p.dead && !p.won;
     const drawObj = (o) => {
       if (o.t === 'trigger' || o.t === 'move' || o.t === 'start') return;
@@ -1239,23 +1370,46 @@
     }
     for (const o of this.groupedObjs) drawObj(o);
 
-    // финишная линия
-    const endSX = this.sx(this.level.endX + 2 * B);
-    if (endSX < VIEW_W + 100) {
+    // финишная СТЕНА
+    const wallX = this.level.endX + 2 * B;
+    const endSX = this.sx(wallX);
+    if (endSX < VW + 100) {
       ctx.save();
-      ctx.globalAlpha = 0.85;
-      for (let y = groundY - 12 * B; y < groundY; y += 30) {
-        ctx.fillStyle = ((y / 30) | 0) % 2 ? '#ffffff' : '#0e0e14';
-        ctx.fillRect(endSX, y, 14, 30);
+      // тело стены — от её грани до края экрана
+      ctx.fillStyle = '#0b0b12';
+      ctx.fillRect(endSX, 0, Math.max(60, VW - endSX + 60), groundY - 0);
+      // горизонтальные швы
+      ctx.strokeStyle = 'rgba(255,255,255,.12)';
+      ctx.lineWidth = 2;
+      for (let y = groundY - 60; y > 0; y -= 60) {
+        ctx.beginPath(); ctx.moveTo(endSX, y); ctx.lineTo(Math.min(VW, endSX + 200), y); ctx.stroke();
       }
+      // светящаяся грань
+      ctx.shadowColor = 'rgba(255,255,255,.9)';
+      ctx.shadowBlur = 14;
+      ctx.fillStyle = 'rgba(255,255,255,.95)';
+      ctx.fillRect(endSX - 3, 0, 6, groundY);
       ctx.restore();
+
+      // невидимые частицы, влетающие в середину стены и белеющие у неё
+      if (emitOk && Math.random() < 0.4) {
+        this.particles.push({
+          x: wallX - 200 - Math.random() * 300,
+          y: 5.5 * B + (Math.random() - 0.5) * 2 * B,
+          vx: 360 + Math.random() * 180, vy: (Math.random() - 0.5) * 26,
+          life: 2.5, max: 2.5,
+          size: 4 + Math.random() * 4,
+          color: '#ffffff', grav: 0,
+          suckX: wallX - 8
+        });
+      }
     }
 
     // чекпоинты
     if (this.practice) {
       for (const cp of this.checkpoints) {
         const cx = this.sx(cp.x + B / 2), cy = this.sy(cp.y + B / 2);
-        if (cx < -50 || cx > VIEW_W + 50) continue;
+        if (cx < -50 || cx > VW + 50) continue;
         ctx.save();
         ctx.translate(cx, cy);
         ctx.rotate(Math.PI / 4);
@@ -1285,7 +1439,10 @@
     // частицы (квадраты и осколки-трапеции)
     for (const pt of this.particles) {
       ctx.save();
-      ctx.globalAlpha = Math.max(0, pt.life / (pt.max || 0.5));
+      let pa = Math.max(0, pt.life / (pt.max || 0.5));
+      // частицы у финишной стены: невидимы вдали, белеют при подлёте
+      if (pt.suckX != null) pa = Math.max(0, 1 - (pt.suckX - pt.x) / 260);
+      ctx.globalAlpha = pa;
       ctx.fillStyle = pt.color;
       const s = pt.size;
       const px = this.sx(pt.x), py = this.sy(pt.y);
@@ -1389,8 +1546,36 @@
       ctx.restore();
     }
 
-    // игрок
-    if (!p.dead) {
+    // лучи из стены после удара (1.5 сек)
+    if (p.won && this._wallHit && this.wonT < 1.6) {
+      const wh = this._wallHit;
+      const wx = this.sx(wh.x), wy = this.sy(wh.y);
+      const fade = Math.max(0, 1 - this.wonT / 1.5);
+      ctx.save();
+      ctx.lineCap = 'round';
+      for (const r of wh.rays) {
+        const flick = 0.55 + 0.45 * Math.sin(this.wonT * 22 + r.ph);
+        const L = r.len * (0.75 + 0.25 * Math.sin(this.wonT * 9 + r.ph));
+        ctx.globalAlpha = fade * flick * 0.9;
+        ctx.beginPath();
+        ctx.moveTo(wx, wy);
+        ctx.lineTo(wx + Math.cos(r.ang) * L, wy + Math.sin(r.ang) * L);
+        ctx.lineWidth = r.w * fade + 1;
+        ctx.strokeStyle = '#eaf8ff';
+        ctx.stroke();
+      }
+      // яркое ядро в точке удара
+      ctx.globalAlpha = fade;
+      const cg2 = ctx.createRadialGradient(wx, wy, 2, wx, wy, 46);
+      cg2.addColorStop(0, '#ffffff');
+      cg2.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = cg2;
+      ctx.beginPath(); ctx.arc(wx, wy, 46, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    }
+
+    // игрок (после удара о стену не рисуем — он «влетел» в неё)
+    if (!p.dead && !p.won) {
       const pcx = this.sx(p.x + B / 2), pcy = this.sy(p.y + B / 2);
       // эффект появления: два расходящихся кольца + масштабирование кубика
       const sp = this.spawnT;
@@ -1412,50 +1597,78 @@
       }
       const scaleIn = sp < 0.3 ? 0.55 + 0.45 * (sp / 0.3) : 1;
       if (p.mode === 'cube') {
-        Icons.draw(ctx, this.iconId, pcx, pcy, B * scaleIn, p.rot);
+        if (p.grav < 0) {
+          // перевёрнутая гравитация — кубик вверх ногами
+          ctx.save();
+          ctx.translate(pcx, pcy);
+          ctx.scale(1, -1);
+          Icons.draw(ctx, this.iconId, 0, 0, B * scaleIn, -p.rot);
+          ctx.restore();
+        } else {
+          Icons.draw(ctx, this.iconId, pcx, pcy, B * scaleIn, p.rot);
+        }
       } else if (p.mode === 'ship') {
         // корабль как в GD (по референсу): зелёный корпус с чёрными обводками,
         // голубой киль + верхняя рейка, сопло сзади, клин-нос спереди
-        const ang = Math.max(-0.6, Math.min(0.6, -p.vy / 1400));
+        const ang = Math.max(-0.6, Math.min(0.6, -p.vy * p.grav / 1400));
         ctx.save();
         ctx.translate(pcx, pcy);
+        if (p.grav < 0) ctx.scale(1, -1); // перевёрнутый полёт
         ctx.rotate(ang);
         ctx.lineWidth = 4.5;
         ctx.lineJoin = 'round';
         ctx.strokeStyle = '#000';
         const GREEN = '#3ee52c', GREEN_D = '#1fae12', CYAN = '#4de8ff';
-        // кубик-пилот: крупный и хорошо видимый над корпусом
-        Icons.draw(ctx, this.iconId, B * 0.02, -B * 0.4, B * 0.58, 0);
-        // корпус самолёта — уменьшен
-        ctx.scale(0.78, 0.78);
-        // реактивная струя из сопла при удержании
+        const K = 0.78; // масштаб корпуса
+        // слой 1 (за кубом): струя и голубой киль
+        ctx.save();
+        ctx.scale(K, K);
         if (this.hold && !this.paused) {
           ctx.beginPath();
-          ctx.moveTo(-B * 0.86, B * 0.0);
-          ctx.lineTo(-B * 1.22 - Math.random() * 14, B * 0.12);
-          ctx.lineTo(-B * 0.84, B * 0.24);
+          ctx.moveTo(-B * 0.86, B * 0.04);
+          ctx.lineTo(-B * 1.24 - Math.random() * 14, B * 0.16);
+          ctx.lineTo(-B * 0.84, B * 0.3);
           ctx.closePath();
           ctx.fillStyle = 'rgba(255,190,60,.9)';
           ctx.fill();
         }
-        // сопло сзади (трапеция)
+        // киль сзади (не наезжает на кубик)
         ctx.beginPath();
-        ctx.moveTo(-B * 0.66, -B * 0.2);
-        ctx.lineTo(-B * 0.88, -B * 0.12);
-        ctx.lineTo(-B * 0.88, B * 0.26);
-        ctx.lineTo(-B * 0.66, B * 0.34);
+        ctx.moveTo(-B * 0.34, -B * 0.16);
+        ctx.lineTo(-B * 0.44, -B * 0.72);
+        ctx.lineTo(-B * 0.7, -B * 0.66);
+        ctx.lineTo(-B * 0.66, -B * 0.14);
+        ctx.closePath();
+        const cg2 = ctx.createLinearGradient(0, -B * 0.72, 0, -B * 0.14);
+        cg2.addColorStop(0, '#9ff2ff');
+        cg2.addColorStop(1, CYAN);
+        ctx.fillStyle = cg2;
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+        // слой 2: кубик-пилот, сидит в кабине (низ прячется за корпусом)
+        Icons.draw(ctx, this.iconId, B * 0.02, -B * 0.28, B * 0.56, 0);
+        // слой 3: корпус — брюхо доходит до низа хитбокса (не «висит» над полом)
+        ctx.save();
+        ctx.scale(K, K);
+        // сопло сзади
+        ctx.beginPath();
+        ctx.moveTo(-B * 0.66, -B * 0.14);
+        ctx.lineTo(-B * 0.88, -B * 0.06);
+        ctx.lineTo(-B * 0.88, B * 0.42);
+        ctx.lineTo(-B * 0.66, B * 0.5);
         ctx.closePath();
         ctx.fillStyle = GREEN_D;
         ctx.fill();
         ctx.stroke();
-        // основной корпус (слегка трапециевидная плита)
+        // основной корпус
         ctx.beginPath();
         ctx.moveTo(-B * 0.68, -B * 0.14);
         ctx.lineTo(B * 0.42, -B * 0.18);
-        ctx.lineTo(B * 0.46, B * 0.4);
-        ctx.lineTo(-B * 0.68, B * 0.36);
+        ctx.lineTo(B * 0.46, B * 0.64);
+        ctx.lineTo(-B * 0.68, B * 0.6);
         ctx.closePath();
-        const hg = ctx.createLinearGradient(0, -B * 0.18, 0, B * 0.4);
+        const hg = ctx.createLinearGradient(0, -B * 0.18, 0, B * 0.64);
         hg.addColorStop(0, GREEN);
         hg.addColorStop(1, GREEN_D);
         ctx.fillStyle = hg;
@@ -1464,28 +1677,20 @@
         // клин-нос спереди
         ctx.beginPath();
         ctx.moveTo(B * 0.42, -B * 0.18);
-        ctx.lineTo(B * 0.92, B * 0.1);
-        ctx.lineTo(B * 0.46, B * 0.4);
+        ctx.lineTo(B * 0.94, B * 0.22);
+        ctx.lineTo(B * 0.46, B * 0.64);
         ctx.closePath();
         ctx.fillStyle = GREEN;
         ctx.fill();
         ctx.stroke();
-        // голубая Г-деталь: киль сзади + рейка по верху (закрывает низ кубика)
+        // голубая полоска на корпусе
         ctx.beginPath();
-        ctx.moveTo(-B * 0.6, -B * 0.62);
-        ctx.lineTo(-B * 0.42, -B * 0.62);
-        ctx.lineTo(-B * 0.42, -B * 0.34);
-        ctx.lineTo(B * 0.36, -B * 0.34);
-        ctx.lineTo(B * 0.36, -B * 0.12);
-        ctx.lineTo(-B * 0.6, -B * 0.12);
-        ctx.closePath();
-        const cg2 = ctx.createLinearGradient(0, -B * 0.62, 0, -B * 0.12);
-        cg2.addColorStop(0, '#9ff2ff');
-        cg2.addColorStop(1, CYAN);
-        ctx.fillStyle = cg2;
+        ctx.rect(-B * 0.55, B * 0.1, B * 0.85, B * 0.14);
+        ctx.fillStyle = CYAN;
         ctx.fill();
         ctx.stroke();
-        ctx.restore();
+        ctx.restore();   // группа корпуса
+        ctx.restore();   // весь корабль (translate/rotate)
       } else { // wave — стрелка
         const dir = p.grounded || p.y + B >= PHYS.ARENA_CEIL ? 0 : (p.vy > 0 ? -1 : 1);
         const ang = dir * Math.PI / 4;
@@ -1531,6 +1736,8 @@
         ctx.restore();
       }
     }
+  
+    ctx.restore();
   };
 
   /* ---------- экспорт ---------- */

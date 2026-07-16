@@ -47,7 +47,33 @@
           </button>
         </span>
       </div>
-      <div id="lobby-version" class="gd-text">v1.1</div>
+      <div id="lobby-version" class="gd-text">v1.2</div>
+      <button class="corner-btn" id="btn-settings" style="bottom:16px;left:16px;top:auto" title="Настройки">
+        <svg width="42" height="42" viewBox="0 0 100 100">
+          <path d="M50 8 l7 14 15 -4 2 16 16 3 -7 14 12 11 -14 9 4 15 -16 2 -3 16 -14 -7 -11 12 -9 -14 -15 4 -2 -16 -16 -3 7 -14 -12 -11 14 -9 -4 -15 16 -2 3 -16 14 7 z"
+                fill="#c9c9c9" stroke="#000" stroke-width="5" stroke-linejoin="round" transform="scale(.86) translate(8 8)"/>
+          <circle cx="50" cy="50" r="15" fill="#5a5a5a" stroke="#000" stroke-width="5"/>
+        </svg>
+      </button>
+
+      <!-- настройки -->
+      <div class="overlay" id="overlay-settings">
+        <div class="panel">
+          <h2 class="gd-title" style="font-size:36px">НАСТРОЙКИ</h2>
+          <div class="set-row"><span class="gd-text">Музыка</span>
+            <input type="range" id="set-music" min="0" max="1" step="0.05" value="0.5"></div>
+          <div class="set-row"><span class="gd-text">Звуки</span>
+            <input type="range" id="set-sfx" min="0" max="1" step="0.05" value="1"></div>
+          <div class="set-row"><span class="gd-text">Прятать мышь в игре</span>
+            <button class="set-toggle" id="set-cursor"><i></i></button></div>
+          <div class="icon-row" style="margin-top:24px">
+            <button class="icon-btn" id="settings-close" title="Закрыть">
+              <svg viewBox="0 0 100 100"><path d="M22 52 L42 72 L78 30" fill="none" stroke="#fff" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
       <div id="lobby-devtag" class="gd-text">DEV-версия</div>
 
     </div>
@@ -60,11 +86,22 @@
         <svg width="40" height="40" viewBox="0 0 100 100"><polygon points="78,12 22,50 78,88" fill="#fff" stroke="#000" stroke-width="8" stroke-linejoin="round"/></svg>
       </button>
       <div class="gd-title" id="map-title">КАРТА</div>
-      <svg id="map-path" viewBox="0 0 1280 720" preserveAspectRatio="none">
-        <path d="M 150 560 C 260 520, 330 470, 430 470 S 620 540, 700 510 S 870 430, 950 380 S 1080 290, 1130 230"
-              fill="none" stroke="rgba(125,232,255,.75)" stroke-width="6" stroke-linecap="round" stroke-dasharray="2 18"/>
-      </svg>
-      <div id="map-nodes"></div>
+      <div id="map-float">
+        <svg id="map-path" viewBox="0 0 1280 720" preserveAspectRatio="none">
+          <!-- летающий остров -->
+          <path d="M 235 428 Q 320 400 420 406 Q 640 378 880 404 Q 990 400 1075 428 L 1020 470 Q 930 505 860 550 Q 775 615 695 650 Q 635 605 555 572 Q 455 532 375 500 Q 295 468 235 428 Z"
+                fill="#6b4a2c" stroke="#000" stroke-width="6" stroke-linejoin="round"/>
+          <path d="M 235 428 Q 320 400 420 406 Q 640 378 880 404 Q 990 400 1075 428 L 1052 448 Q 640 414 258 448 Z"
+                fill="#4fce4f" stroke="#000" stroke-width="5" stroke-linejoin="round"/>
+          <!-- парящие обломки под островом -->
+          <path d="M 360 660 l 56 -18 l 46 20 l -50 28 z" fill="#5a3f26" stroke="#000" stroke-width="4"/>
+          <path d="M 900 688 l 42 -14 l 34 17 l -38 21 z" fill="#5a3f26" stroke="#000" stroke-width="4"/>
+          <!-- тропа между узлами -->
+          <path d="M 320 415 C 380 402, 440 396, 500 398 S 630 403, 690 400 S 810 386, 870 390 S 970 398, 1030 408"
+                fill="none" stroke="rgba(125,232,255,.75)" stroke-width="6" stroke-linecap="round" stroke-dasharray="2 18"/>
+        </svg>
+        <div id="map-nodes"></div>
+      </div>
     </div>
 
     <!-- ======= GARAGE (icon select) ======= -->
@@ -197,6 +234,7 @@
         <button class="ed-btn orange" id="ed-export">⤓ Экспорт</button>
         <button class="ed-btn" id="ed-import">Импорт</button>
         <input type="file" id="ed-import-file" accept=".json,.gwlevel" style="display:none">
+        <button class="ed-btn" id="ed-grid">Сетка: вкл</button>
         <button class="ed-btn red" id="ed-clear">Очистить</button>
       </div>
 
@@ -273,6 +311,7 @@
       </div>
     </div>
 
+    <div id="rotate-hint"><div class="gd-title" style="font-size:34px">ПОВЕРНИ ТЕЛЕФОН</div><div class="gd-text" style="font-size:52px">📱⟳</div></div>
     <div id="toast"></div>
     <div id="fader"></div>
   </div>
