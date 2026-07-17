@@ -79,7 +79,11 @@
   const Icons = {
     list: [
       { id: 0, name: 'cube1', src: 'textures/cube1.jpg' },
-      { id: 1, name: 'cube2', src: 'textures/cube2.jpg' }
+      { id: 1, name: 'cube2', src: 'textures/cube2.jpg' },
+      { id: 2, name: 'cube3', src: 'textures/cube3.png' },
+      { id: 3, name: 'cube4', src: 'textures/cube4.png' },
+      // cube5 — не квадратной формы, со своей обводкой: не рисуем чёрную окантовку
+      { id: 4, name: 'cube5', src: 'textures/cube5.png', noOutline: true }
     ],
     // запасные цвета, если картинки нет
     fallback: {
@@ -100,17 +104,25 @@
     drawFace(ctx, id, size) {
       const s = size, h = s / 2;
       const img = this.images[id];
+      const ic = this.list.find(i => i.id === id);
+      const noOutline = !!(ic && ic.noOutline);
       ctx.save();
       // острые углы, обводка остаётся
       ctx.beginPath();
       ctx.rect(-h, -h, s, s);
       if (img) {
-        ctx.save(); ctx.clip();
-        ctx.drawImage(img, -h, -h, s, s);
-        ctx.restore();
-        ctx.lineWidth = Math.max(2, s * 0.07);
-        ctx.strokeStyle = '#000';
-        ctx.stroke();
+        if (noOutline) {
+          // некватдратная иконка со своей обводкой — рисуем как есть, без клипа и рамки
+          ctx.drawImage(img, -h, -h, s, s);
+        } else {
+          ctx.save(); ctx.clip();
+          ctx.drawImage(img, -h, -h, s, s);
+          ctx.restore();
+          // окантовка тоньше (форма прежняя)
+          ctx.lineWidth = Math.max(1.4, s * 0.045);
+          ctx.strokeStyle = '#000';
+          ctx.stroke();
+        }
       } else {
         const pal = this.fallback[id] || this.fallback[0];
         const g = ctx.createLinearGradient(0, -h, 0, h);
@@ -363,8 +375,13 @@
       const overload = act >= 0 && act < 0.3;
       ctx.save();
       ctx.globalAlpha = obj.used && !overload ? 0.35 : 1;
-      // пульсирует сам жёлтый шар: сжимается и растёт
-      const R = B * 0.24 + (opts.static ? 0 : Math.sin(tm * 3.5 + (obj.x || 0)) * B * 0.045);
+      // резкая СЛУЧАЙНАЯ пульсация: размер скачками меняется ~12 раз/сек
+      let R = B * 0.24;
+      if (!opts.static) {
+        const seed = Math.floor(tm * 12 + (obj.x || 0) * 2.7);
+        const rnd = Math.abs(Math.sin(seed * 12.9898 + (obj.x || 0) * 3.1) * 43758.5453) % 1;
+        R += (rnd - 0.4) * B * 0.11;
+      }
       if (!opts.static) { ctx.shadowColor = main; ctx.shadowBlur = overload ? 26 : 14; }
       const cg = ctx.createRadialGradient(0, 0, R * 0.2, 0, 0, R);
       cg.addColorStop(0, overload ? '#ffffff' : main);
@@ -722,6 +739,8 @@
       if (!this.running) return;
       let dt = (now - this._last) / 1000;
       this._last = now;
+      const rawDt = dt;
+      if (rawDt > 0) this._fps = this._fps ? this._fps * 0.9 + (1 / rawDt) * 0.1 : 1 / rawDt;
       if (dt > 0.05) dt = 0.05;
       if (!this.paused) {
         const STEP = 1 / 240;
@@ -853,9 +872,12 @@
       if (this.wonT <= FLY && this._winFrom && this._wallHit) {
         const k = Math.min(1, this.wonT / FLY);
         const e = k * k * (3 - 2 * k);
-        p.x = this._winFrom.x + (this._wallHit.x - B * 0.85 - this._winFrom.x) * e;
-        p.y = this._winFrom.y + (this._wallHit.y - B / 2 - this._winFrom.y) * e;
-        p.rot += 420 * dt;
+        const tx = this._wallHit.x - B * 0.85;
+        const ty = this._wallHit.y - B / 2;
+        p.x = this._winFrom.x + (tx - this._winFrom.x) * e;
+        // прыжок-дуга вверх + быстрая закрутка — «засасывает» в стену
+        p.y = this._winFrom.y + (ty - this._winFrom.y) * e + Math.sin(k * Math.PI) * B * 1.5;
+        p.rot += 760 * dt;
       } else if (!this._winBurst && this._wallHit) {
         this._winBurst = true;
         this.spawnBurst(this._wallHit.x - 4, this._wallHit.y, '#ffffff', 18);
@@ -1216,7 +1238,12 @@
     }
 
     // камера
-    this.camX = p.x - ((window.GW_VIEW_W || VIEW_W) / this.viewZoom) * 0.235;
+    const VWc = (window.GW_VIEW_W || VIEW_W) / this.viewZoom;
+    this.camX = p.x - VWc * 0.235;
+    // у финиша камера ЗАМИРАЕТ на расстоянии: стена подъезжает в кадр справа,
+    // а игрок пробегает последний участок и «засасывается» в стену
+    const camMax = (this.level.endX + 2 * B) - VWc * 0.72;
+    if (this.camX > camMax) this.camX = camMax;
     const relY = p.y - this.camY;
     let target = this.camY;
     if (relY > 5.4 * B) target = p.y - 5.4 * B;
@@ -1269,18 +1296,18 @@
     const wallX = this.level.endX + 2 * B;
     this._winFrom = { x: p.x, y: p.y };
     const rays = [];
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 13; i++) {
       rays.push({
-        ang: Math.PI * 0.5 + (i / 9) * Math.PI + (Math.random() - 0.5) * 0.12,
-        len: 230 + Math.random() * 380,
-        w: 8 + Math.random() * 14,
+        ang: Math.PI * 0.5 + (i / 12) * Math.PI + (Math.random() - 0.5) * 0.12,
+        len: 360 + Math.random() * 540,
+        w: 12 + Math.random() * 20,
         ph: Math.random() * 6.28
       });
     }
     this._wallHit = { x: wallX - 8, y: 5.5 * B, rays };
     this._winBurst = false;
-    // камера: уровень занимает большую часть кадра, стена у правого края
-    this._winCamTarget = wallX - ((window.GW_VIEW_W || VIEW_W) / this.viewZoom) * 0.8;
+    // камера остаётся замершей на той же точке, что и при подъезде (см. update)
+    this._winCamTarget = wallX - ((window.GW_VIEW_W || VIEW_W) / this.viewZoom) * 0.72;
     // музыка НЕ останавливается: играет, пока не выйдешь в меню или трек не кончится
   };
 
@@ -1527,9 +1554,15 @@
       ctx.restore();
     }
 
-    // след волны
+    // след волны — выходит точно из хвоста стрелки (учитываем её наклон ±45°)
     if (p.mode === 'wave' && !p.dead && !this.paused) {
-      this.waveTrail.push({ x: p.x + B * 0.1, y: p.y + B / 2 });
+      const dir = p.grounded || p.y + B >= PHYS.ARENA_CEIL ? 0 : (p.vy > 0 ? -1 : 1);
+      const ang = dir * Math.PI / 4;
+      const tail = -B * 0.15; // локальный x хвоста-выреза стрелки (с учётом масштаба волны)
+      this.waveTrail.push({
+        x: p.x + B / 2 + tail * Math.cos(ang),
+        y: p.y + B / 2 - tail * Math.sin(ang)
+      });
       if (this.waveTrail.length > 40) this.waveTrail.shift();
     } else if (this.waveTrail.length) {
       this.waveTrail.splice(0, 2);
@@ -1596,13 +1629,13 @@
         ctx.strokeStyle = '#eaf8ff';
         ctx.stroke();
       }
-      // яркое ядро в точке удара
+      // яркое ядро в точке удара (крупнее)
       ctx.globalAlpha = fade;
-      const cg2 = ctx.createRadialGradient(wx, wy, 2, wx, wy, 46);
+      const cg2 = ctx.createRadialGradient(wx, wy, 3, wx, wy, 74);
       cg2.addColorStop(0, '#ffffff');
       cg2.addColorStop(1, 'rgba(255,255,255,0)');
       ctx.fillStyle = cg2;
-      ctx.beginPath(); ctx.arc(wx, wy, 46, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(wx, wy, 74, 0, Math.PI * 2); ctx.fill();
       ctx.restore();
     }
 
@@ -1677,24 +1710,24 @@
         ctx.fillStyle = GREEN_D;
         ctx.fill();
         ctx.stroke();
-        // основной корпус — брюхо до низа хитбокса (не висит над полом)
+        // основной корпус — брюхо чуть поджато по высоте
         ctx.beginPath();
         ctx.moveTo(-B * 0.68, -B * 0.14);
         ctx.lineTo(B * 0.42, -B * 0.18);
-        ctx.lineTo(B * 0.46, B * 0.64);
-        ctx.lineTo(-B * 0.68, B * 0.6);
+        ctx.lineTo(B * 0.46, B * 0.54);
+        ctx.lineTo(-B * 0.68, B * 0.5);
         ctx.closePath();
-        const hg = ctx.createLinearGradient(0, -B * 0.18, 0, B * 0.64);
+        const hg = ctx.createLinearGradient(0, -B * 0.18, 0, B * 0.54);
         hg.addColorStop(0, GREEN);
         hg.addColorStop(1, GREEN_D);
         ctx.fillStyle = hg;
         ctx.fill();
         ctx.stroke();
-        // клин-нос спереди
+        // клин-нос спереди (поджат по высоте)
         ctx.beginPath();
         ctx.moveTo(B * 0.42, -B * 0.18);
-        ctx.lineTo(B * 0.92, B * 0.2);
-        ctx.lineTo(B * 0.46, B * 0.64);
+        ctx.lineTo(B * 0.92, B * 0.15);
+        ctx.lineTo(B * 0.46, B * 0.54);
         ctx.closePath();
         ctx.fillStyle = GREEN;
         ctx.fill();
@@ -1722,7 +1755,7 @@
         ctx.save();
         ctx.translate(pcx, pcy);
         ctx.rotate(ang);
-        ctx.scale(0.62, 0.62);
+        ctx.scale(0.67, 0.67);
         ctx.beginPath();
         ctx.moveTo(B * 0.58, 0);
         ctx.lineTo(-B * 0.52, -B * 0.34);
@@ -1762,8 +1795,22 @@
         ctx.restore();
       }
     }
-  
+
     ctx.restore();
+
+    // счётчик FPS — слева сверху (по настройке)
+    if (window.GW_SETTINGS && window.GW_SETTINGS.showFps && this._fps) {
+      ctx.save();
+      ctx.font = '700 20px system-ui, Arial, sans-serif';
+      ctx.textBaseline = 'top';
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = 'rgba(0,0,0,.85)';
+      ctx.fillStyle = '#8dff6e';
+      const txt = Math.round(this._fps) + ' FPS';
+      ctx.strokeText(txt, 14, 12);
+      ctx.fillText(txt, 14, 12);
+      ctx.restore();
+    }
   };
 
   /* ---------- экспорт ---------- */

@@ -181,12 +181,6 @@ canvas { display: block; }
   .lobby-cube-track { animation: none; left: 20%; }
 }
 
-/* кнопка настроек — внизу по центру, под кнопкой «Играть» */
-#btn-settings {
-  left: 50%;
-  margin-left: -37px;
-}
-
 /* доступность: меньше движения для чувствительных к анимации */
 @media (prefers-reduced-motion: reduce) {
   .menu-bg::before { animation: none; }
@@ -243,26 +237,54 @@ canvas { display: block; }
 }
 
 #lobby-buttons {
-  position: absolute; top: 46%; left: 0; right: 0;
+  position: absolute; top: 47%; left: 0; right: 0;
+  transform: translateY(-50%);
   display: flex; align-items: center; justify-content: center;
-  gap: 70px;
+  gap: 60px;
 }
-#lobby-right-slot { display: flex; align-items: center; gap: 70px; }
 
-.round-btn {
+/* ===== GD-шные кнопки-«крестики» (как в оригинале) ===== */
+.gd-cross {
+  position: relative;
+  border: none; background: none; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: transform .09s;
+}
+.gd-cross.big { width: 210px; height: 210px; }
+.gd-cross.mid { width: 152px; height: 152px; }
+.gd-cross:hover  { transform: scale(1.06); }
+.gd-cross:active { transform: scale(.94); }
+/* фигура кнопки — один SVG: синий квадрат, а поверх цельный зелёный крест
+   (без полосок по центру); 4 конца креста немного выпирают за квадрат —
+   как в оригинале GD, чётко на любом размере */
+.gd-cross::before {
+  content: ''; position: absolute; inset: 0; z-index: 0;
+  background: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs><linearGradient id='c' x1='0' y1='0' x2='0' y2='1'><stop offset='0' stop-color='%239fecff'/><stop offset='.55' stop-color='%2337b9ec'/><stop offset='1' stop-color='%231487c0'/></linearGradient><linearGradient id='g' x1='0' y1='0' x2='0' y2='1'><stop offset='0' stop-color='%238ff77a'/><stop offset='.55' stop-color='%233ac93f'/><stop offset='1' stop-color='%23159a34'/></linearGradient></defs><rect x='15' y='15' width='70' height='70' rx='12' fill='url(%23c)' stroke='%23000' stroke-width='5'/><path d='M36 3 H64 V36 H97 V64 H64 V97 H36 V64 H3 V36 H36 Z' fill='url(%23g)' stroke='%23000' stroke-width='5' stroke-linejoin='round'/></svg>") center/contain no-repeat;
+  filter: drop-shadow(0 8px 5px rgba(0,0,0,.4));
+}
+.cross-icon {
+  position: relative; z-index: 2; display: block;
+  filter: drop-shadow(0 3px 0 rgba(0,0,0,.35));
+}
+.gd-cross.mid .cross-icon { width: 80px; height: 80px; }
+#garage-btn-icon.cross-icon { image-rendering: pixelated; }
+
+/* круглая зелёная кнопка (настройки внизу — как в GD) */
+.gd-round {
+  position: absolute; bottom: 20px; left: 50%;
+  transform: translateX(-50%);
+  width: 80px; height: 80px;
   border: none; cursor: pointer;
   border-radius: 50%;
-  background: radial-gradient(circle at 35% 30%, #6ee76e, #16a516 55%, #0c7a0c);
-  box-shadow: 0 6px 0 rgba(0,0,0,.4), inset 0 -6px 12px rgba(0,0,0,.28), inset 0 6px 10px rgba(255,255,255,.35);
-  outline: 4px solid rgba(0,0,0,.75);
+  background: radial-gradient(circle at 35% 28%, #7bf46a, #23ac2a 58%, #0e7a24);
+  outline: 4px solid rgba(0,0,0,.8);
+  box-shadow: 0 6px 0 rgba(0,0,0,.4), inset 0 -5px 10px rgba(0,0,0,.28), inset 0 6px 10px rgba(255,255,255,.4);
   display: flex; align-items: center; justify-content: center;
   transition: transform .08s;
+  z-index: 20;
 }
-.round-btn:hover  { transform: scale(1.07); }
-.round-btn:active { transform: scale(.95); }
-.round-btn.big    { width: 210px; height: 210px; }
-.round-btn.mid    { width: 140px; height: 140px; }
-.round-btn svg    { display: block; }
+.gd-round:hover  { transform: translateX(-50%) scale(1.08); }
+.gd-round:active { transform: translateX(-50%) scale(.93); }
 
 /* corner + generic small buttons */
 .corner-btn {
@@ -352,20 +374,19 @@ canvas { display: block; }
   transition: transform .1s;
 }
 #level-card:hover { transform: translate(-50%,-54%) scale(1.02); }
-#level-name { font-size: 52px; margin-bottom: 6px; }
+#level-name { font-size: 54px; margin: 4px 0 26px; padding: 0 90px; }
 
 #level-diff {
-  position: absolute; left: 18px; top: 50%;
-  transform: translateY(-50%);
+  position: absolute; left: 34px; top: 34px;
   display: flex; flex-direction: column; align-items: center; gap: 2px;
   width: 84px;
 }
-#level-diff canvas { width: 62px; height: 62px; filter: drop-shadow(0 3px 0 rgba(0,0,0,.35)); }
-#level-diff span { font-size: 12px; text-align: center; line-height: 1.2; }
+#level-diff canvas { width: 74px; height: 74px; filter: drop-shadow(0 3px 0 rgba(0,0,0,.35)); }
+#level-diff span { font-size: 13px; text-align: center; line-height: 1.2; }
 #level-song { font-size: 18px; color: #9fd0ff; -webkit-text-stroke: 1px #000; margin-bottom: 20px; }
 
-.progress-row { margin: 10px auto; width: 560px; text-align: left; }
-.progress-row .label { font-size: 16px; margin-bottom: 4px; display: block; }
+.progress-row { margin: 14px auto; width: 600px; text-align: center; }
+.progress-row .label { font-size: 20px; margin-bottom: 6px; display: block; }
 .pbar {
   height: 26px; border-radius: 13px;
   background: rgba(0,0,0,.55);

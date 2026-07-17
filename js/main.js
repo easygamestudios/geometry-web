@@ -9,7 +9,7 @@
   /* ---------- настройки ---------- */
   const SETTINGS_KEY = 'gw_settings_v1';
   const settings = Object.assign(
-    { musicVol: 0.5, sfxVol: 1, hideCursor: false },
+    { musicVol: 0.5, sfxVol: 1, hideCursor: false, showFps: false },
     (() => { try { return JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {}; } catch (e) { return {}; } })()
   );
   window.GW_SETTINGS = settings;
@@ -42,10 +42,11 @@
     const vw = window.visualViewport ? window.visualViewport.width : window.innerWidth;
     const vh = window.visualViewport ? window.visualViewport.height : window.innerHeight;
     if (!(vw > 0 && vh > 0)) return;
-    // телефоны шире 16:9 — расширяем сцену до пропорций экрана
+    // сцена подгоняется под пропорции экрана — заполняем его целиком, без чёрных полос
+    // (и на телефонах, и на мониторах с не-16:9 экраном, напр. 16:10 у ноутбуков)
     let w = 1280;
-    if (IS_TOUCH && vw > vh && vw / vh > 1280 / 720) {
-      w = Math.min(1760, Math.round(720 * vw / vh));
+    if (vw > vh) {
+      w = Math.max(1000, Math.min(2560, Math.round(720 * vw / vh)));
     }
     if (w !== stageW) {
       stageW = w;
@@ -62,8 +63,8 @@
     } else {
       stage.style.transform = `scale(${s})`;
     }
-    // на телефонах камера ближе к игроку — картинка крупнее, играть легче
-    const zoom = (IS_TOUCH && Math.min(vw, vh) < 560) ? 1.45 : 1;
+    // на телефонах чуть шире обзор — видно больше уровня сверху и впереди
+    const zoom = (IS_TOUCH && Math.min(vw, vh) < 560) ? 1.15 : 1;
     window.GW_VIEW_ZOOM = zoom;
     const g = window.GW_APP && window.GW_APP.game;
     if (g) g.viewZoom = zoom;
@@ -137,7 +138,7 @@
   }
 
   /* ---------- иконки в лобби и гараже ---------- */
-  const LOCKED_SLOTS = 6;
+  const LOCKED_SLOTS = 3;
 
   function drawIconOn(canvas, id) {
     const c = canvas.getContext('2d');
@@ -145,14 +146,37 @@
     GW.Icons.draw(c, id, canvas.width / 2, canvas.height / 2, canvas.width * 0.82, 0);
   }
 
-  // кубик 2 открывается за прохождение первого уровня
-  function iconLocked(ic) {
-    if (ic.id === 0) return false;
-    if (ic.id === 1) {
-      const lvl1 = (window.LEVELS || [])[0];
-      return !(lvl1 && save.levels[lvl1.name] && save.levels[lvl1.name].best >= 100);
+  function levelDone(lvl) {
+    return !!(lvl && save.levels[lvl.name] && save.levels[lvl.name].best >= 100);
+  }
+  function totalJumpsAll() {
+    let n = 0;
+    for (const k in save.levels) n += save.levels[k].totalJumps || 0;
+    return n;
+  }
+  // условие открытия каждого кубика (и текст-подсказка)
+  function iconUnlock(ic) {
+    switch (ic.id) {
+      case 0: return { open: true };
+      case 1: return { open: levelDone((window.LEVELS || [])[0]),
+                       hint: 'Пройди уровень «' + (((window.LEVELS || [])[0] || {}).name || '') + '», чтобы открыть кубик!' };
+      case 2: return { open: levelDone((window.MAP_LEVELS || [])[0]),
+                       hint: 'Пройди 1-й уровень карты, чтобы открыть кубик!' };
+      case 3: return { open: totalJumpsAll() >= 100,
+                       hint: 'Сделай 100 прыжков во всей игре (' + totalJumpsAll() + '/100), чтобы открыть кубик!' };
+      case 4: return { open: levelDone((window.MAP_LEVELS || [])[1]),
+                       hint: 'Пройди 2-й уровень карты «impulse», чтобы открыть кубик!' };
+      default: return { open: false, hint: 'Скоро!' };
     }
-    return true;
+  }
+  function iconLocked(ic) { return !iconUnlock(ic).open; }
+  function lockedSnapshot() { return GW.Icons.list.map(ic => iconLocked(ic)); }
+  // сравнивает состояние «до» с текущим и объявляет о новом открытом кубике
+  function announceNewUnlocks(before) {
+    const after = GW.Icons.list.map(ic => iconLocked(ic));
+    for (let i = 0; i < after.length; i++) {
+      if (before[i] && !after[i]) { toast('🎉 Открыт новый кубик! Загляни в гараж', 3500); return; }
+    }
   }
 
   function buildGarage() {
@@ -179,8 +203,9 @@
         slot.appendChild(lk);
       }
       slot.addEventListener('click', () => {
-        if (iconLocked(ic)) {
-          toast('Пройди уровень «' + ((window.LEVELS || [])[0] || {}).name + '», чтобы открыть этот кубик!');
+        const u = iconUnlock(ic);
+        if (!u.open) {
+          toast(u.hint || 'Этот кубик пока закрыт!');
           return;
         }
         save.icon = ic.id;
@@ -348,8 +373,10 @@
       const lvl = levels[i];
       const prevDone = i === 0 || (levels[i - 1] && levelSave(levels[i - 1].name).best >= 100);
       const node = document.createElement('div');
-      node.style.left = pos[0] + 'px';
-      node.style.top = pos[1] + 'px';
+      // проценты, а не пиксели: узлы масштабируются вместе с SVG-островом
+      // (ширина сцены может отличаться от 1280 на не-16:9 экранах)
+      node.style.left = (pos[0] / 1280 * 100) + '%';
+      node.style.top = (pos[1] / 720 * 100) + '%';
       if (lvl && prevDone) {
         const ls = levelSave(lvl.name);
         const done = ls.best >= 100;
@@ -397,6 +424,7 @@
       },
       onDeath(attempts, pct, jumps) {
         if (fromEditor || !playingLevel) return;
+        const before = lockedSnapshot();
         const ls = levelSave(playingLevel.name);
         ls.totalJumps += jumps || 0;
         if (game.practice) {
@@ -405,11 +433,12 @@
           if (pct > ls.best) ls.best = Math.min(99, Math.floor(pct));
         }
         writeSave();
+        announceNewUnlocks(before);   // напр. 100 прыжков во всей игре → новый кубик
       },
       onComplete(stats) {
         if (!fromEditor && playingLevel) {
+          const before = lockedSnapshot();
           const ls = levelSave(playingLevel.name);
-          const firstWin = !stats.practice && ls.best < 100;
           ls.totalJumps += stats.jumps || 0;
           if (stats.practice) {
             ls.practice = 100;
@@ -418,10 +447,7 @@
             stats.coins.forEach(i => { ls.coins[i] = true; });
           }
           writeSave();
-          // награда за первый уровень — кубик 2
-          if (firstWin && playingLevel === (window.LEVELS || [])[0]) {
-            toast('🎉 Открыт новый кубик! Загляни в гараж', 3500);
-          }
+          announceNewUnlocks(before);   // прохождение уровня карты → новый кубик
         }
         showComplete(stats);
       },
@@ -570,6 +596,7 @@
       $('#set-music').value = settings.musicVol;
       $('#set-sfx').value = settings.sfxVol;
       $('#set-cursor').classList.toggle('on', !!settings.hideCursor);
+      const fps = $('#set-fps'); if (fps) fps.classList.toggle('on', !!settings.showFps);
       $('#overlay-settings').classList.add('active');
     });
     $('#settings-close').addEventListener('click', () => $('#overlay-settings').classList.remove('active'));
@@ -582,6 +609,12 @@
     $('#set-cursor').addEventListener('click', (e) => {
       settings.hideCursor = !settings.hideCursor;
       e.currentTarget.classList.toggle('on', settings.hideCursor);
+      saveSettings();
+    });
+    const setFps = $('#set-fps');
+    if (setFps) setFps.addEventListener('click', (e) => {
+      settings.showFps = !settings.showFps;
+      e.currentTarget.classList.toggle('on', settings.showFps);
       saveSettings();
     });
   }
@@ -646,7 +679,7 @@
       // трек едет слева направо, кубик внутри прыгает
       const track = document.createElement('div');
       track.className = 'lobby-cube-track';
-      const dur = 11 + i * 3 + Math.random() * 4;
+      const dur = 6 + i * 1.5 + Math.random() * 2.5;
       track.style.animationDuration = dur + 's';
       track.style.animationDelay = (-Math.random() * dur) + 's'; // стартуют вразброс
       const cv = document.createElement('canvas');
@@ -664,7 +697,7 @@
       cv.classList.remove('jump');
       void cv.offsetWidth;              // перезапуск анимации
       cv.classList.add('jump');
-    }, 900);
+    }, 650);
   })();
 
   /* ---------- старт ---------- */

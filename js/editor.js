@@ -16,7 +16,10 @@
     window.addEventListener('resize', () => window.GW_SETUP_HIDPI(canvas));
   }
   const ctx = canvas.getContext('2d');
-  const W = 1280, H = 720; // логические размеры (битмап может быть больше на Retina)
+  let W = 1280; const H = 720; // логическая высота фиксирована; ширина = ширине сцены (см. syncW)
+  // ширина сцены может быть не 1280 (на не-16:9 экранах), а канвас рендерит именно
+  // в логическом пространстве шириной со сцену — держим W в синхроне, иначе мышь «уедет»
+  function syncW() { W = canvas.clientWidth || W; }
   const GROUND_Y = 520; // экранная линия земли в редакторе (при camY=0)
 
   const AUTOSAVE_KEY = 'gw_editor_autosave';
@@ -97,6 +100,7 @@
 
   function canvasPos(e) {
     const r = canvas.getBoundingClientRect();
+    syncW();
     return {
       x: (e.clientX - r.left) * (W / r.width),
       y: (e.clientY - r.top) * (H / r.height)
@@ -247,6 +251,7 @@
   /* ---------- отрисовка ---------- */
   function render() {
     if (state.testing) return;
+    syncW();
     const z = state.zoom, cs = B * z;
     const bg = state.level.bg || '#287dff';
 
