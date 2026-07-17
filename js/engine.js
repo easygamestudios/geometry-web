@@ -630,6 +630,9 @@
     this.wonT = 0;
     this._completeFired = false;
     this._wallHit = null;
+    this._winFrom = null;
+    this._winBurst = false;
+    this._winCamTarget = null;
     this.hold = false;
     this._pressBuf = 0;
     this.jumpsAttempt = 0;
@@ -843,9 +846,26 @@
     if (this.spawnT < 1) this.spawnT += dt;
 
     if (p.won) {
-      // влетели в стену: 1.5 сек лучи, потом экран победы; музыка играет дальше
+      // финиш: кубик подлетает к центру стены (0.45с) → уходит в неё →
+      // 1.5с лучи; музыка играет дальше
+      const FLY = 0.45;
       this.wonT += dt;
-      if (!this._completeFired && this.wonT >= 1.5) {
+      if (this.wonT <= FLY && this._winFrom && this._wallHit) {
+        const k = Math.min(1, this.wonT / FLY);
+        const e = k * k * (3 - 2 * k);
+        p.x = this._winFrom.x + (this._wallHit.x - B * 0.85 - this._winFrom.x) * e;
+        p.y = this._winFrom.y + (this._wallHit.y - B / 2 - this._winFrom.y) * e;
+        p.rot += 420 * dt;
+      } else if (!this._winBurst && this._wallHit) {
+        this._winBurst = true;
+        this.spawnBurst(this._wallHit.x - 4, this._wallHit.y, '#ffffff', 18);
+        this.fx.push({ kind: 'whitering', x: this._wallHit.x - 4, y: this._wallHit.y, t: 0, dur: 0.6, r0: B * 0.3 });
+      }
+      // камера плавно отъезжает: уровень слева, стена у правого края
+      if (this._winCamTarget != null) {
+        this.camX += (this._winCamTarget - this.camX) * Math.min(1, 4 * dt);
+      }
+      if (!this._completeFired && this.wonT >= FLY + 1.5) {
         this._completeFired = true;
         if (this.hooks.onComplete) {
           this.hooks.onComplete({
@@ -1196,7 +1216,7 @@
     }
 
     // камера
-    this.camX = p.x - (VIEW_W / this.viewZoom) * 0.235;
+    this.camX = p.x - ((window.GW_VIEW_W || VIEW_W) / this.viewZoom) * 0.235;
     const relY = p.y - this.camY;
     let target = this.camY;
     if (relY > 5.4 * B) target = p.y - 5.4 * B;
@@ -1245,22 +1265,22 @@
     p.won = true;
     this.wonT = 0;
     Sfx.complete();
-    // точка удара о стену + веер лучей влево (как в оригинале)
+    // кубик полетит в ЦЕНТР стены по высоте; лучи — крупный веер влево
     const wallX = this.level.endX + 2 * B;
-    p.x = wallX - B * 0.7;
-    const iy = p.y + B / 2;
+    this._winFrom = { x: p.x, y: p.y };
     const rays = [];
     for (let i = 0; i < 10; i++) {
       rays.push({
         ang: Math.PI * 0.5 + (i / 9) * Math.PI + (Math.random() - 0.5) * 0.12,
-        len: 130 + Math.random() * 240,
-        w: 5 + Math.random() * 9,
+        len: 230 + Math.random() * 380,
+        w: 8 + Math.random() * 14,
         ph: Math.random() * 6.28
       });
     }
-    this._wallHit = { x: wallX - 8, y: iy, rays };
-    this.spawnBurst(wallX - 12, iy, '#ffffff', 18);
-    this.fx.push({ kind: 'whitering', x: wallX - 10, y: iy, t: 0, dur: 0.6, r0: B * 0.3 });
+    this._wallHit = { x: wallX - 8, y: 5.5 * B, rays };
+    this._winBurst = false;
+    // камера: уровень занимает большую часть кадра, стена у правого края
+    this._winCamTarget = wallX - ((window.GW_VIEW_W || VIEW_W) / this.viewZoom) * 0.8;
     // музыка НЕ останавливается: играет, пока не выйдешь в меню или трек не кончится
   };
 
@@ -1286,10 +1306,15 @@
     if (this.hooks.onTick) this.hooks.onTick(this._pct || 0);
 
     const z = this.viewZoom || 1;
-    const VW = VIEW_W / z, VH = VIEW_H / z;
+    const VW = (window.GW_VIEW_W || VIEW_W) / z, VH = VIEW_H / z;
     this._gsy = VH - (VIEW_H - GROUND_SCREEN_Y) / z; // линия земли с учётом зума
     ctx.save();
     ctx.scale(z, z);
+    // тряска экрана, пока бьют лучи на финише
+    if (p.won && this.wonT > 0.45 && this.wonT < 2.0) {
+      const sa = 6 * Math.max(0, 1 - (this.wonT - 0.45) / 1.55);
+      ctx.translate((Math.random() - 0.5) * sa * 2, (Math.random() - 0.5) * sa * 2);
+    }
 
     const grad = ctx.createLinearGradient(0, 0, 0, VH);
     grad.addColorStop(0, shade(bg, 0.10));
@@ -1516,7 +1541,7 @@
         const a = this.waveTrail[i - 1], b = this.waveTrail[i];
         const k = i / this.waveTrail.length;
         ctx.globalAlpha = k * 0.5;
-        ctx.lineWidth = 4 + k * 14;
+        ctx.lineWidth = 3 + k * 9;
         ctx.strokeStyle = '#7de8ff';
         ctx.beginPath();
         ctx.moveTo(this.sx(a.x), this.sy(a.y));
@@ -1546,11 +1571,18 @@
       ctx.restore();
     }
 
-    // лучи из стены после удара (1.5 сек)
-    if (p.won && this._wallHit && this.wonT < 1.6) {
+    // кубик летит в центр стены и «уходит» в неё, уменьшаясь
+    if (p.won && !p.dead && this.wonT < 0.45) {
+      const pcx = this.sx(p.x + B / 2), pcy = this.sy(p.y + B / 2);
+      const s = 1 - (this.wonT / 0.45) * 0.55;
+      Icons.draw(ctx, this.iconId, pcx, pcy, B * s, p.rot);
+    }
+
+    // лучи из стены после удара (1.5 сек, начинаются после подлёта)
+    if (p.won && this._wallHit && this.wonT >= 0.45 && this.wonT < 2.1) {
       const wh = this._wallHit;
       const wx = this.sx(wh.x), wy = this.sy(wh.y);
-      const fade = Math.max(0, 1 - this.wonT / 1.5);
+      const fade = Math.max(0, 1 - (this.wonT - 0.45) / 1.5);
       ctx.save();
       ctx.lineCap = 'round';
       for (const r of wh.rays) {
@@ -1620,48 +1652,32 @@
         ctx.strokeStyle = '#000';
         const GREEN = '#3ee52c', GREEN_D = '#1fae12', CYAN = '#4de8ff';
         const K = 0.78; // масштаб корпуса
-        // слой 1 (за кубом): струя и голубой киль
+        // кубик-пилот: крупный, выглядывает над корпусом за голубой рейкой
+        Icons.draw(ctx, this.iconId, B * 0.02, -B * 0.4, B * 0.58, 0);
+        // корпус (та самая текстура по референсу из GD)
         ctx.save();
         ctx.scale(K, K);
+        // реактивная струя из сопла при удержании
         if (this.hold && !this.paused) {
           ctx.beginPath();
-          ctx.moveTo(-B * 0.86, B * 0.04);
-          ctx.lineTo(-B * 1.24 - Math.random() * 14, B * 0.16);
-          ctx.lineTo(-B * 0.84, B * 0.3);
+          ctx.moveTo(-B * 0.86, B * 0.0);
+          ctx.lineTo(-B * 1.22 - Math.random() * 14, B * 0.14);
+          ctx.lineTo(-B * 0.84, B * 0.28);
           ctx.closePath();
           ctx.fillStyle = 'rgba(255,190,60,.9)';
           ctx.fill();
         }
-        // киль сзади (не наезжает на кубик)
+        // сопло сзади (трапеция)
         ctx.beginPath();
-        ctx.moveTo(-B * 0.34, -B * 0.16);
-        ctx.lineTo(-B * 0.44, -B * 0.72);
-        ctx.lineTo(-B * 0.7, -B * 0.66);
-        ctx.lineTo(-B * 0.66, -B * 0.14);
-        ctx.closePath();
-        const cg2 = ctx.createLinearGradient(0, -B * 0.72, 0, -B * 0.14);
-        cg2.addColorStop(0, '#9ff2ff');
-        cg2.addColorStop(1, CYAN);
-        ctx.fillStyle = cg2;
-        ctx.fill();
-        ctx.stroke();
-        ctx.restore();
-        // слой 2: кубик-пилот, сидит в кабине (низ прячется за корпусом)
-        Icons.draw(ctx, this.iconId, B * 0.02, -B * 0.28, B * 0.56, 0);
-        // слой 3: корпус — брюхо доходит до низа хитбокса (не «висит» над полом)
-        ctx.save();
-        ctx.scale(K, K);
-        // сопло сзади
-        ctx.beginPath();
-        ctx.moveTo(-B * 0.66, -B * 0.14);
-        ctx.lineTo(-B * 0.88, -B * 0.06);
+        ctx.moveTo(-B * 0.66, -B * 0.2);
+        ctx.lineTo(-B * 0.88, -B * 0.12);
         ctx.lineTo(-B * 0.88, B * 0.42);
         ctx.lineTo(-B * 0.66, B * 0.5);
         ctx.closePath();
         ctx.fillStyle = GREEN_D;
         ctx.fill();
         ctx.stroke();
-        // основной корпус
+        // основной корпус — брюхо до низа хитбокса (не висит над полом)
         ctx.beginPath();
         ctx.moveTo(-B * 0.68, -B * 0.14);
         ctx.lineTo(B * 0.42, -B * 0.18);
@@ -1677,26 +1693,36 @@
         // клин-нос спереди
         ctx.beginPath();
         ctx.moveTo(B * 0.42, -B * 0.18);
-        ctx.lineTo(B * 0.94, B * 0.22);
+        ctx.lineTo(B * 0.92, B * 0.2);
         ctx.lineTo(B * 0.46, B * 0.64);
         ctx.closePath();
         ctx.fillStyle = GREEN;
         ctx.fill();
         ctx.stroke();
-        // голубая полоска на корпусе
+        // голубая Г-деталь: киль сзади + рейка по верху (прикрывает низ кубика)
         ctx.beginPath();
-        ctx.rect(-B * 0.55, B * 0.1, B * 0.85, B * 0.14);
-        ctx.fillStyle = CYAN;
+        ctx.moveTo(-B * 0.6, -B * 0.62);
+        ctx.lineTo(-B * 0.42, -B * 0.62);
+        ctx.lineTo(-B * 0.42, -B * 0.34);
+        ctx.lineTo(B * 0.36, -B * 0.34);
+        ctx.lineTo(B * 0.36, -B * 0.12);
+        ctx.lineTo(-B * 0.6, -B * 0.12);
+        ctx.closePath();
+        const cg2 = ctx.createLinearGradient(0, -B * 0.62, 0, -B * 0.12);
+        cg2.addColorStop(0, '#9ff2ff');
+        cg2.addColorStop(1, CYAN);
+        ctx.fillStyle = cg2;
         ctx.fill();
         ctx.stroke();
-        ctx.restore();   // группа корпуса
+        ctx.restore();   // группа корпуса (та самая недостающая точка восстановления)
         ctx.restore();   // весь корабль (translate/rotate)
-      } else { // wave — стрелка
+      } else { // wave — стрелка (сама волна меньше, под стать хитбоксу)
         const dir = p.grounded || p.y + B >= PHYS.ARENA_CEIL ? 0 : (p.vy > 0 ? -1 : 1);
         const ang = dir * Math.PI / 4;
         ctx.save();
         ctx.translate(pcx, pcy);
         ctx.rotate(ang);
+        ctx.scale(0.62, 0.62);
         ctx.beginPath();
         ctx.moveTo(B * 0.58, 0);
         ctx.lineTo(-B * 0.52, -B * 0.34);

@@ -79,11 +79,23 @@ canvas { display: block; }
 
 .menu-bg::before, #lobby-title { will-change: transform; }
 
-/* прыгающие кубики на фоне лобби */
-#lobby-cubes { position: absolute; inset: 0; pointer-events: none; z-index: 0; }
-.lobby-cube {
+/* кубики на фоне лобби: выезжают слева, едут направо и прыгают */
+#lobby-cubes { position: absolute; inset: 0; pointer-events: none; z-index: 0; overflow: hidden; }
+.lobby-cube-track {
   position: absolute;
+  left: -70px;
   bottom: 124px;              /* на линии земли */
+  animation-name: cuberun;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+  will-change: transform;
+}
+@keyframes cuberun {
+  from { transform: translateX(0); }
+  to   { transform: translateX(1900px); }
+}
+.lobby-cube {
+  display: block;
   width: 56px; height: 56px;
   opacity: .85;
 }
@@ -166,6 +178,13 @@ canvas { display: block; }
 @media (prefers-reduced-motion: reduce) {
   #map-float { animation: none; }
   .lobby-cube.jump { animation: none; }
+  .lobby-cube-track { animation: none; left: 20%; }
+}
+
+/* кнопка настроек — внизу по центру, под кнопкой «Играть» */
+#btn-settings {
+  left: 50%;
+  margin-left: -37px;
 }
 
 /* доступность: меньше движения для чувствительных к анимации */
@@ -228,6 +247,7 @@ canvas { display: block; }
   display: flex; align-items: center; justify-content: center;
   gap: 70px;
 }
+#lobby-right-slot { display: flex; align-items: center; gap: 70px; }
 
 .round-btn {
   border: none; cursor: pointer;
@@ -266,7 +286,7 @@ canvas { display: block; }
   -webkit-text-stroke: 1px #000;
 }
 #lobby-devtag {
-  position: absolute; bottom: 14px; left: 104px; /* правее кнопки настроек */
+  position: absolute; bottom: 14px; left: 20px;
   font-size: 16px; color: #ffe14d;
   -webkit-text-stroke: 1px #000;
 }

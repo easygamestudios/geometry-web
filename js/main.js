@@ -16,20 +16,22 @@
 
   const IS_TOUCH = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 
-  /* ---------- масштабирование сцены 1280x720 + чёткий канвас ---------- */
+  /* ---------- масштабирование сцены + чёткий канвас ---------- */
   const stage = $('#stage');
   let stageScale = 1;
+  let stageW = 1280; // на широких телефонах сцена расширяется — никаких чёрных полос
+  window.GW_VIEW_W = 1280;
   const hidpiCanvases = [];
 
   function applyHiDPI(canvas) {
-    // разрешение канваса = логика 1280x720 × масштаб экрана × dpr —
+    // разрешение канваса = логика сцены × масштаб экрана × dpr —
     // картинка остаётся чёткой и на больших мониторах, и на Retina
     const k = Math.min(2.5, Math.max(1, stageScale) * (window.devicePixelRatio || 1));
-    const w = Math.round(1280 * k), h = Math.round(720 * k);
-    if (canvas.width !== w) {
+    const w = Math.round(stageW * k), h = Math.round(720 * k);
+    if (canvas.width !== w || canvas.height !== h) {
       canvas.width = w;
       canvas.height = h;
-      canvas.style.width = '1280px';
+      canvas.style.width = stageW + 'px';
       canvas.style.height = '720px';
     }
     canvas.getContext('2d').setTransform(k, 0, 0, k, 0, 0);
@@ -39,22 +41,35 @@
     // visualViewport точнее в мобильном Safari (учитывает адресную строку)
     const vw = window.visualViewport ? window.visualViewport.width : window.innerWidth;
     const vh = window.visualViewport ? window.visualViewport.height : window.innerHeight;
-    const s = Math.min(vw / 1280, vh / 720);
-    if (s > 0 && Math.abs(s - stageScale) > 0.001) {
+    if (!(vw > 0 && vh > 0)) return;
+    // телефоны шире 16:9 — расширяем сцену до пропорций экрана
+    let w = 1280;
+    if (IS_TOUCH && vw > vh && vw / vh > 1280 / 720) {
+      w = Math.min(1760, Math.round(720 * vw / vh));
+    }
+    if (w !== stageW) {
+      stageW = w;
+      window.GW_VIEW_W = w;
+      stage.style.width = w + 'px';
+      stage.style.minWidth = w + 'px';
+      hidpiCanvases.forEach(applyHiDPI);
+    }
+    const s = Math.min(vw / stageW, vh / 720);
+    if (Math.abs(s - stageScale) > 0.001) {
       stageScale = s;
       stage.style.transform = `scale(${s})`;
       hidpiCanvases.forEach(applyHiDPI);
-    } else if (s > 0) {
+    } else {
       stage.style.transform = `scale(${s})`;
     }
     // на телефонах камера ближе к игроку — картинка крупнее, играть легче
-    const zoom = (IS_TOUCH && vw > 0 && Math.min(vw, vh) < 560) ? 1.3 : 1;
+    const zoom = (IS_TOUCH && Math.min(vw, vh) < 560) ? 1.45 : 1;
     window.GW_VIEW_ZOOM = zoom;
     const g = window.GW_APP && window.GW_APP.game;
     if (g) g.viewZoom = zoom;
     // подсказка «поверни телефон» в портретной ориентации
     const hint = $('#rotate-hint');
-    if (hint) hint.classList.toggle('show', IS_TOUCH && vh > vw && vw > 0);
+    if (hint) hint.classList.toggle('show', IS_TOUCH && vh > vw);
   }
 
   function setupHiDPI(canvas) {
@@ -611,7 +626,7 @@
         '<div class="gd-text" style="font-size:17px;line-height:1.8;margin-bottom:22px">' +
         (ios
           ? 'Нажми «Поделиться» внизу Safari<br>и выбери «На экран “Домой”» —<br>игра откроется на весь экран!'
-          : 'Открой меню браузера ⋮ и выбери<br>«Установить приложение» —<br>игра откроется на весь экран!') +
+          : 'Открой меню Chrome (⋮ справа вверху)<br>и выбери «Добавить на гл. экран» →<br>«Установить» — игра откроется<br>на весь экран, как приложение!') +
         '</div><div class="icon-row"><button class="icon-btn" id="a2hs-ok">' +
         '<svg viewBox="0 0 100 100"><path d="M22 52 L42 72 L78 30" fill="none" stroke="#fff" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
         '</button></div></div>';
@@ -628,11 +643,17 @@
     const lobby = $('#screen-lobby');
     lobby.insertBefore(wrap, $('#lobby-title'));
     for (let i = 0; i < 4; i++) {
+      // трек едет слева направо, кубик внутри прыгает
+      const track = document.createElement('div');
+      track.className = 'lobby-cube-track';
+      const dur = 11 + i * 3 + Math.random() * 4;
+      track.style.animationDuration = dur + 's';
+      track.style.animationDelay = (-Math.random() * dur) + 's'; // стартуют вразброс
       const cv = document.createElement('canvas');
       cv.width = cv.height = 56;
       cv.className = 'lobby-cube';
-      cv.style.left = (6 + i * 25 + Math.random() * 10) + '%';
-      wrap.appendChild(cv);
+      track.appendChild(cv);
+      wrap.appendChild(track);
       lobbyCubes.push(cv);
     }
     const reduced = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
